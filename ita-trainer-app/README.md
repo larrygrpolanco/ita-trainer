@@ -42,7 +42,7 @@ Test checklist:
 
 ### Phase 3: Practice UI (desktop first, mobile responsive)
 
-Goal: full three-panel practice experience.
+Goal: Considerable changes were made here do not try to "fix" the UI.
 
 Scope:
 - Build desktop three-column layout (audio, transcript, objective panel).

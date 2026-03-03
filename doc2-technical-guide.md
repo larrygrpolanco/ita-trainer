@@ -375,7 +375,7 @@ Pre-install these shadcn components before giving the project to the coding agen
 
 The coding agent should NOT run npx shadcn add — you will have already done this.
 
-### Practice Page Layout
+### Practice Page Layout (This has changed considerably)
 
 ```
 +----------------------------------------------------------+
@@ -391,7 +391,7 @@ The coding agent should NOT run npx shadcn add — you will have already done th
 +----------------+---------------------+-------------------+
 ```
 
-Use Tailwind flex and w-1/3 for columns. Dark theme (bg-neutral-950 text-neutral-100).
+
 
 ---
 
@@ -421,7 +421,7 @@ Steps:
 3. Build the home page with activity cards.
 4. Milestone: Different activities produce different student personas.
 
-### Phase 3: Practice UI
+### Phase 3/4: Practice UI
 
 Steps:
 1. Build the three-column practice layout.
@@ -431,7 +431,7 @@ Steps:
 5. Add coach tips inline in transcript based on turn count.
 6. Milestone: Full practice UI with live transcript, objective panel, coach tips.
 
-### Phase 4: Evaluation + Polish
+### Phase 4/5: Evaluation + Polish
 
 Steps:
 1. Add evaluate_objective tool to agent (data channel message when criteria met).
