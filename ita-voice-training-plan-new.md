@@ -1,3 +1,8 @@
+Here is your new, ground-up **Concrete Implementation Plan**. 
+
+This plan is built on a **secure, scalable LiveKit Cloud architecture**. It entirely eliminates the brittle pattern of connecting a browser directly to an AI provider. Instead, we use a proper client-server WebRTC architecture: your Next.js frontend connects to a LiveKit Room, and a secure Node.js background worker (the Agent) joins that same room to handle the AI processing.
+
+---
 
 # ITA Interactional Competence Trainer — Implementation Plan
 
