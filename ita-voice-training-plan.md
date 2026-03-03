@@ -1,59 +1,67 @@
-# ITA Interactional Competence Trainer — Concrete Implementation Plan
+
+# ITA Interactional Competence Trainer — Implementation Plan
 
 ## What This Is
 
-A Next.js app where international teaching assistants (ITAs) practice **interactional competence** through voice conversations with simulated students. Each activity targets a specific interactional skill — managing questions, checking understanding, redirecting off-topic talk — and ends when the objective is met or a turn limit is reached.
+A Next.js web application where international teaching assistants (ITAs) practice **interactional competence** through voice conversations with simulated students. Each activity targets a specific interactional skill — managing questions, checking understanding, redirecting off-topic talk — and ends when the objective is met or a turn limit is reached.
 
 No database. No admin UI. Activities live in a TypeScript config file. Add, remove, or edit them by editing that file.
 
 ---
 
+## The Architecture (Client-Server WebRTC)
+
+We use a modern, decoupled voice AI architecture:
+1. **The Client (Next.js)**: Requests a token, joins a LiveKit Room, captures microphone input, and renders the UI (transcripts, visualizers).
+2. **The Room (LiveKit Cloud)**: Handles all WebRTC networking, audio routing, and data channels.
+3. **The Worker (Node.js Agent)**: Runs on your server. It listens for newly created LiveKit rooms, joins them securely, executes the LLM logic, and speaks back into the room.
+
 ## Tech Stack
 
 | Layer | Choice | Why |
 |---|---|---|
-| Framework | Next.js (App Router) | shadcn/ui access, API routes, SSR |
-| Voice | OpenAI Agents SDK (`@openai/agents`) | Single-service STT→LLM→TTS via WebRTC |
-| UI Components | shadcn/ui + inspiration from LiveKit/ElevenLabs component patterns | Polished audio visualizer, transcript panel |
-| Styling | Tailwind CSS | Ships with shadcn |
-| State | React state + zustand (small store for session) | No persistence needed for MVP |
+| Framework | Next.js (App Router) | UI routing, React Server Components, API routes |
+| Infrastructure | LiveKit Cloud | Handles STUN/TURN, WebRTC rooms, and data channels (free tier) |
+| Agent Backend | `@livekit/agents` (Node.js) | A standalone worker process that manages the AI logic safely on the server |
+| AI Plugin | `@livekit/agents-plugin-openai` | The specific model driver used by the LiveKit worker |
+| UI Components | `@livekit/components-react` | Pre-built WebRTC hooks, audio visualizers, and room context |
+| Styling & UI | Tailwind CSS + shadcn/ui | Polished, accessible component primitives |
+| State | Zustand | Manages the session loop (turn tracking, coach feedback triggers) |
 
 ---
 
 ## Project Structure
 
-```
+We will use a monorepo setup. During development, you will run both the Next.js frontend and the Node.js Agent worker simultaneously.
+
+```text
 src/
 ├── app/
-│   ├── layout.tsx                  # Root layout, fonts, global styles
-│   ├── page.tsx                    # Home — explains interactional competence, activity cards
+│   ├── layout.tsx                  # Global layout
+│   ├── page.tsx                    # Home — explains the tool, lists ActivityCards
+│   ├── api/token/route.ts          # Generates secure LiveKit Room Access Tokens
 │   └── practice/
 │       └── [activityId]/
-│           └── page.tsx            # Practice page — voice session UI
+│           └── page.tsx            # The main practice UI (LiveKitRoom provider)
 ├── components/
-│   ├── ui/                         # shadcn components (Button, Card, Badge, etc.)
-│   ├── ActivityCard.tsx            # Expandable card on home page
-│   ├── AudioVisualizer.tsx         # Mic visualization orb/waveform
-│   ├── TranscriptPanel.tsx         # Live scrolling transcript
-│   ├── ObjectiveTracker.tsx        # Shows current objective + completion state
-│   ├── CoachMessage.tsx            # Inline colored coach feedback in transcript
-│   └── SessionControls.tsx         # Start/stop, turn counter
+│   ├── ui/                         # shadcn/ui components
+│   ├── ActivityCard.tsx            
+│   └── TranscriptPanel.tsx         # Renders transcripts + injected Coach text
 ├── lib/
-│   ├── activities.ts               # ← ALL activity definitions live here
-│   ├── agent.ts                    # RealtimeAgent + tool setup
-│   ├── prompts.ts                  # Shared prompt fragments
-│   └── session-store.ts            # Zustand store for session state
-├── api/
-│   └── session/
-│       └── route.ts                # POST — generates ephemeral key
-.env.local                          # OPENAI_API_KEY
+│   ├── activities.ts               # ← ALL activity definitions live here (Shared config)
+│   └── session-store.ts            # Zustand store for turns & feedback
+agent/
+├── main.ts                         # LiveKit Agent entry point (watches for rooms)
+└── agent.ts                        # Agent logic, tools, and persona setup
+.env.local                          # API keys (LiveKit & LLM)
+package.json                        # Uses `concurrently` to run UI + Agent
 ```
 
 ---
 
-## The Activities Config File
+## 1. The Activities Config File
 
-This is the single source of truth. Everything that varies per activity goes here. Everything shared (how the agent responds to tools, turn detection settings, the practice page layout) stays in the app code.
+This is the single source of truth for your scenarios. It is imported by *both* the Next.js frontend (for UI display) and the Node.js agent (to configure the AI persona).
 
 ### `src/lib/activities.ts`
 
@@ -61,207 +69,72 @@ This is the single source of truth. Everything that varies per activity goes her
 export interface Activity {
   id: string;
   title: string;
-  shortDescription: string;        // Shown on the card before expanding
-  fullDescription: string;          // Shown when card is expanded
+  shortDescription: string;
+  fullDescription: string;
   level: "beginner" | "intermediate" | "advanced";
   estimatedMinutes: number;
-  maxTurns: number;                 // Hard stop — session ends after this many exchanges
+  maxTurns: number;
 
-  // Student simulation config
   studentProfile: {
     name: string;
-    personality: string;            // e.g. "confused but polite freshman"
-    openingLine: string;            // What the student says first
+    personality: string;
+    openingLine: string;
   };
 
-  // What the ITA needs to demonstrate
   objective: {
-    title: string;                  // e.g. "Check for understanding"
-    description: string;            // Shown in the objective panel
-    successCriteria: string;        // Used in the system prompt for the model to evaluate
-    examplePhrases: string[];       // Hints the ITA can peek at
+    title: string;
+    description: string;
+    successCriteria: string;
+    examplePhrases: string[];
   };
 
-  // The custom part of the system prompt (student-specific behavior)
   systemPromptExtension: string;
-
-  // Optional coach tips that appear as colored messages in the transcript
+  
   coachTips: {
-    afterTurn?: number;             // Show tip after this many turns if objective not met
+    afterTurn: number;
     message: string;
   }[];
 }
-
-// ──────────────────────────────────────────────
-// ACTIVITIES — edit, add, remove here
-// ──────────────────────────────────────────────
 
 export const activities: Activity[] = [
   {
     id: "clarify-rubric",
     title: "Clarifying a Rubric",
-    shortDescription:
-      "A student visits office hours confused about how partial credit works on an assignment.",
-    fullDescription:
-      "A freshman in your intro course comes to office hours and says they don't understand how partial credit is awarded. They're frustrated because they 'got the right answer but lost points.' Your goal is to explain the rubric clearly, check that the student understands, and leave them feeling heard.",
+    shortDescription: "A student visits office hours confused about partial credit.",
+    fullDescription: "A freshman in your intro course comes to office hours...",
     level: "beginner",
     estimatedMinutes: 5,
     maxTurns: 12,
 
     studentProfile: {
       name: "Alex",
-      personality:
-        "Confused but not hostile. Uses simple language. Gets more relaxed as things make sense. Will say 'I think I get it' when they understand, but might also say that prematurely.",
-      openingLine:
-        "Hi, um, I had a question about my grade on problem set 3? I got the right answer on question 2 but I only got 6 out of 10 points and I don't really understand why.",
+      personality: "Confused but polite freshman. Uses simple language. Will say 'I think I get it' when they understand, but might also say that prematurely.",
+      openingLine: "Hi, um, I had a question about my grade on problem set 3? I got the right answer but I only got 6 out of 10 points...",
     },
 
     objective: {
       title: "Explain and confirm understanding",
-      description:
-        "Clearly explain how partial credit works, then check that the student genuinely understands (not just says 'okay').",
-      successCriteria:
-        "The TA has (1) explained that showing work matters for partial credit, (2) given a concrete example or restated the rubric criteria, AND (3) asked a genuine comprehension check question — not just 'does that make sense?' but something that requires the student to demonstrate understanding, like 'can you tell me what you'd do differently next time?' or 'so what would full credit look like on that problem?'",
+      description: "Clearly explain how partial credit works, then check that the student genuinely understands.",
+      successCriteria: "The TA has (1) explained that showing work matters, (2) given a concrete example, AND (3) asked a genuine comprehension check question.",
       examplePhrases: [
         "So the rubric is looking for...",
         "Can you walk me through what you'd do differently?",
-        "Let me show you what a 10/10 answer looks like.",
-        "Does that match what you were thinking, or is there a part that's still unclear?",
       ],
     },
 
     systemPromptExtension: `
-BEHAVIOR: You start confused and slightly frustrated but not rude.
-- If the TA just says "you need to show your work" without explaining further, stay confused and say something like "but I did show my work... I wrote the answer."
-- If the TA gives a clear, specific explanation with an example, start nodding along: "Oh okay, so it's like..."
-- If the TA asks a real comprehension check (not just "make sense?"), respond genuinely — either demonstrate understanding or reveal remaining confusion.
-- If the TA asks "does that make sense?" with no specificity, say "yeah I think so" even if confused. This tests whether the TA digs deeper.
+BEHAVIOR: You start confused and slightly frustrated.
+- If the TA just says "you need to show your work", say "but I did... I wrote the answer."
+- If the TA asks "does that make sense?" with no specificity, say "yeah I think so" even if confused.
 - Do NOT volunteer that you understand unless the TA has genuinely explained well AND checked comprehension.
 `,
 
     coachTips: [
-      {
-        afterTurn: 4,
-        message:
-          "💡 Tip: Try giving a concrete example of what full credit vs. partial credit looks like on this specific problem.",
-      },
-      {
-        afterTurn: 8,
-        message:
-          "💡 Tip: You've explained well — now check if they actually understood. Ask them to restate or apply what you said.",
-      },
+      { afterTurn: 4, message: "💡 Tip: Try giving a concrete example of what full credit looks like." },
+      { afterTurn: 8, message: "💡 Tip: You've explained well — now ask them to restate what you said." },
     ],
   },
-
-  {
-    id: "redirect-question",
-    title: "Redirecting an Off-Topic Question",
-    shortDescription:
-      "A student in your lab section keeps asking questions beyond the scope of today's activity.",
-    fullDescription:
-      "During a lab section on basic circuit analysis, a curious student keeps asking about advanced topics (like transistor amplifiers) that aren't part of today's lab. You need to acknowledge their interest while firmly but warmly redirecting them to the task at hand.",
-    level: "intermediate",
-    estimatedMinutes: 5,
-    maxTurns: 10,
-
-    studentProfile: {
-      name: "Jordan",
-      personality:
-        "Enthusiastic and talkative. Not trying to be difficult — genuinely curious. Responds well to being taken seriously but needs clear boundaries. If redirected dismissively, pushes back. If acknowledged, cooperates.",
-      openingLine:
-        "Hey, so I was reading ahead and I had a question — like, how does a transistor amplify a signal? Is it related to what we're doing with these resistors?",
-    },
-
-    objective: {
-      title: "Acknowledge and redirect",
-      description:
-        "Validate the student's curiosity while redirecting to the current lab task. Do this without dismissing them.",
-      successCriteria:
-        "The TA has (1) acknowledged that the question is interesting or valid (not dismissed it), (2) clearly stated that it's outside the scope of today's lab, AND (3) offered a concrete next step — like 'come to office hours', 'we'll cover that in week 8', or 'that's a great thing to look into after you finish today's exercise.'",
-      examplePhrases: [
-        "That's a great question — it's actually related to what we'll cover later in the course.",
-        "I want to make sure we stay focused on today's lab, but let's talk about that after.",
-        "Why don't you finish the current circuit first, and we can chat about transistors during office hours?",
-      ],
-    },
-
-    systemPromptExtension: `
-BEHAVIOR: You are enthusiastic and well-meaning.
-- If the TA just says "that's not relevant" or "we're not covering that," look a bit deflated and say "oh, okay" but then try asking another off-topic question to test if the TA can redirect again.
-- If the TA acknowledges your curiosity AND gives a redirect with a concrete alternative (office hours, future lecture, after lab), say "Oh cool, yeah that makes sense. So for this circuit..."
-- If the TA provides a partial explanation of transistors, get even more excited and ask a deeper follow-up, pulling them further off-topic. This tests their ability to stop and redirect.
-- Only accept the redirect fully if the TA both validates you AND gives a clear alternative.
-`,
-
-    coachTips: [
-      {
-        afterTurn: 4,
-        message:
-          "💡 Tip: Acknowledge their curiosity first before redirecting. 'That's a great question' goes a long way.",
-      },
-      {
-        afterTurn: 7,
-        message:
-          "💡 Tip: Offer a concrete alternative — when and where they can explore this topic.",
-      },
-    ],
-  },
-
-  {
-    id: "positive-assessment",
-    title: "Responding to a Difficult Question",
-    shortDescription:
-      "A student asks a question you're not fully sure how to answer.",
-    fullDescription:
-      "During your presentation in a TA training simulation, a panel member asks a question that's at the edge of your knowledge. You need to manage the response professionally — acknowledging the question, giving what you can, and being honest about the limits of your answer without losing credibility. This is directly based on the interactional moves observed in the TEACH test research.",
-    level: "advanced",
-    estimatedMinutes: 5,
-    maxTurns: 10,
-
-    studentProfile: {
-      name: "Professor Kim",
-      personality:
-        "Calm, neutral tone. Asks probing questions. Not trying to trip you up but won't let vague answers slide. If you say 'that's a great question' and then give a non-answer, will follow up.",
-      openingLine:
-        "You mentioned that this method works best for large datasets. Can you explain what happens when the dataset is small — does the algorithm still converge?",
-    },
-
-    objective: {
-      title: "Handle an uncertain question with competence",
-      description:
-        "Respond to a question at the edge of your knowledge. Demonstrate honesty about limits without losing authority.",
-      successCriteria:
-        "The TA has (1) acknowledged the question as valid (not dismissively), (2) shared what they DO know relevant to the answer, (3) been honest about uncertainty — saying something like 'I'm not entirely sure about the specifics of convergence with small n, but...' AND (4) offered a next step such as 'I can look into that and follow up' or 'that might be worth exploring in the documentation.' The TA should NOT just say 'good question' and then ramble vaguely.",
-      examplePhrases: [
-        "That's an important edge case. From what I understand...",
-        "I'm not 100% certain on the convergence behavior, but I believe...",
-        "Let me look into the specifics and get back to you on that.",
-        "That's a great question — here's what I know, and here's where I'd need to verify...",
-      ],
-    },
-
-    systemPromptExtension: `
-BEHAVIOR: You are a faculty evaluator in a TA training context (TEACH test style).
-- If the TA gives a vague non-answer after "that's a great question," press gently: "Could you say a bit more about that?"
-- If the TA is honest about uncertainty but shows relevant knowledge, nod along: "Okay, that's reasonable."
-- If the TA makes something up or overcommits to an answer they clearly don't know, look slightly skeptical: "Are you sure about that? My understanding was different."
-- If the TA offers to follow up, accept that gracefully: "Sure, that would be helpful."
-- Reward the combination of partial knowledge + honesty + a concrete next step.
-`,
-
-    coachTips: [
-      {
-        afterTurn: 3,
-        message:
-          "💡 Tip: It's okay not to know everything. Share what you do know, and be upfront about what you'd need to check.",
-      },
-      {
-        afterTurn: 6,
-        message:
-          "💡 Tip: Offer a concrete follow-up — 'I'll look into that and email you' shows professionalism, not weakness.",
-      },
-    ],
-  },
+  // Add more activities here...
 ];
 
 export function getActivity(id: string): Activity | undefined {
@@ -269,470 +142,445 @@ export function getActivity(id: string): Activity | undefined {
 }
 ```
 
-### Adding a new activity
+---
 
-1. Add an object to the `activities` array.
-2. Done. The home page renders it automatically, the practice page loads it by `id`.
+## 2. API Route: Secure Token Generation
+
+The frontend must never have access to your private API keys. Instead, the frontend requests a temporary token to join a specifically named room.
+
+### `src/app/api/token/route.ts`
+
+```typescript
+import { AccessToken } from "livekit-server-sdk";
+import { NextResponse } from "next/server";
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const activityId = searchParams.get("activityId");
+
+  if (!activityId) {
+    return NextResponse.json({ error: "Missing activityId" }, { status: 400 });
+  }
+
+  // Room name pattern: room-{activityId}-{randomHash}
+  // This allows the backend Agent to know WHICH activity config to load when it joins.
+  const roomName = `room-${activityId}-${Math.random().toString(36).substring(7)}`;
+  const participantIdentity = `user-${Math.random().toString(36).substring(7)}`;
+
+  const at = new AccessToken(
+    process.env.LIVEKIT_API_KEY,
+    process.env.LIVEKIT_API_SECRET,
+    {
+      identity: participantIdentity,
+      name: "TA_Trainee",
+    }
+  );
+
+  // Grant permissions to join, speak, listen, and receive data channel messages
+  at.addGrant({ 
+    roomJoin: true, 
+    room: roomName, 
+    canPublish: true, 
+    canSubscribe: true, 
+    canPublishData: true 
+  });
+
+  return NextResponse.json({ 
+    token: await at.toJwt(),
+    roomName 
+  });
+}
+```
 
 ---
 
-## System Prompt Architecture
+## 3. The Backend Worker (Node.js Agent)
 
-The agent gets a combined prompt built from shared scaffolding + the activity-specific parts:
+This process runs independently of the Next.js UI server. When a room is created on LiveKit Cloud, this worker gets notified, joins the room, sets up the persona, and orchestrates the AI.
 
-### `src/lib/prompts.ts`
-
+### `agent/main.ts`
 ```typescript
-import { Activity } from "./activities";
+import { cli, defineAgent, JobContext } from '@livekit/agents';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'node:url';
+import { setupAgent } from './agent.js';
 
-export function buildSystemPrompt(activity: Activity): string {
-  return `
-You are simulating a student in a teaching assistant training exercise focused on INTERACTIONAL COMPETENCE — the ability to manage real classroom conversations effectively.
+dotenv.config({ path: '.env.local' });
 
+export default defineAgent({
+  entry: async (ctx: JobContext) => {
+    await ctx.connect();
+    console.log(`Agent joined room: ${ctx.room.name}`);
+    
+    // Extract the activityId from the room name (e.g., room-clarify-rubric-xyz)
+    const roomParts = ctx.room.name.split('-');
+    const activityId = roomParts.slice(1, -1).join('-'); 
+    
+    await setupAgent(ctx, activityId);
+  },
+});
+
+// Starts the worker process
+cli.runApp({ agent: fileURLToPath(import.meta.url), agentName: 'ita-student-agent' });
+```
+
+### `agent/agent.ts`
+```typescript
+import { JobContext, voice, llm } from '@livekit/agents';
+import * as openai from '@livekit/agents-plugin-openai';
+import { getActivity } from '../src/lib/activities.js';
+
+export async function setupAgent(ctx: JobContext, activityId: string) {
+  const activity = getActivity(activityId);
+  if (!activity) throw new Error(`Activity ${activityId} not found`);
+
+  // 1. Setup Data Channel & Evaluation Tool
+  // We use function calling so the LLM can evaluate the user silently.
+  const fncCtx = new llm.FunctionContext();
+  
+  fncCtx.register({
+    name: 'evaluate_objective',
+    description: 'Evaluate whether the TA met the objective. Call this silently after each TA turn.',
+    parameters: {
+      type: 'object',
+      properties: {
+        criteria_met: { type: 'boolean', description: 'Whether ALL success criteria have been met' },
+        feedback: { type: 'string', description: 'Brief internal note on TA performance' }
+      },
+      required: ['criteria_met', 'feedback'],
+    },
+    execute: async ({ criteria_met, feedback }) => {
+      // Send the evaluation result back to the frontend UI via LiveKit Data Channels
+      const payload = JSON.stringify({ type: 'EVALUATION', met: criteria_met, feedback });
+      await ctx.room.localParticipant?.publishData(new TextEncoder().encode(payload), { reliable: true });
+      return "Evaluation recorded.";
+    }
+  });
+
+  // 2. Build the Persona Prompt
+  const instructions = `
+You are a simulated student in a teaching assistant training exercise.
 ROLE: ${activity.studentProfile.name}
 ${activity.studentProfile.personality}
 
-CURRENT OBJECTIVE FOR THE TRAINEE (TA):
-${activity.objective.title}
-Success criteria: ${activity.objective.successCriteria}
+CURRENT OBJECTIVE FOR THE TA:
+${activity.objective.successCriteria}
 
 YOUR BEHAVIOR:
 ${activity.systemPromptExtension}
 
-RULES:
-1. Stay in character at all times. Never break the fourth wall. Never mention that you are an AI.
-2. Use natural student language — hesitations, filler words ("um", "like"), simple vocabulary.
-3. Keep responses short: 1–3 sentences. This is a voice conversation.
-4. Do NOT make it too easy. The TA needs to actually demonstrate the skill, not just hear you say "okay."
-5. After each TA response, silently evaluate whether the success criteria have been met.
-   - Call the evaluate_objective tool with your honest assessment.
-6. If the TA meets ALL parts of the success criteria, call mark_complete.
-7. Be a realistic student — sometimes unclear, sometimes premature with "I get it", sometimes needing things repeated.
+# Output Rules
+- Respond in plain text only.
+- Keep replies brief: 1-3 sentences. Ask one question at a time.
+- Use natural student language (hesitations, "um", "like").
+- Call 'evaluate_objective' after the TA speaks to assess if they met the criteria.
+  `;
 
-IMPORTANT TURN DETECTION NOTE:
-The person practicing may be a non-native English speaker. They may pause for 2-3 seconds mid-thought.
-Do NOT interpret silence as "they're done talking." Be patient. Wait for a clear end of thought.
+  // 3. Initialize the Realtime Voice Pipeline
+  const session = new voice.AgentSession({
+    llm: new openai.realtime.RealtimeModel({
+      voice: 'alloy',
+      instructions: instructions,
+      turnDetection: {
+        type: 'server_vad',
+        threshold: 0.5,
+        prefix_padding_ms: 300,
+        // ITAs (non-native speakers) often pause mid-sentence.
+        // A generous silence duration prevents the agent from interrupting them.
+        silence_duration_ms: 1200 
+      }
+    }),
+    fncCtx
+  });
 
-Your opening line (deliver this naturally when the session starts):
-"${activity.studentProfile.openingLine}"
-`.trim();
+  await session.start({ room: ctx.room });
+
+  // 4. Trigger the opening line
+  await session.generateReply({
+    instructions: `Deliver your opening line naturally: "${activity.studentProfile.openingLine}"`,
+  });
 }
 ```
 
 ---
 
-## Agent Setup
+## 4. The Frontend Practice UI
 
-### `src/lib/agent.ts`
+The UI acts purely as a terminal to connect to the LiveKit Room. It visualizes the audio, renders transcripts, and listens for the `EVALUATION` data channel messages.
 
-```typescript
-import { RealtimeAgent } from "@openai/agents/realtime";
-import { tool } from "@openai/agents";
-import { z } from "zod";
-import { Activity } from "./activities";
-import { buildSystemPrompt } from "./prompts";
+### `src/app/practice/[activityId]/page.tsx`
+```tsx
+"use client";
 
-export function createStudentAgent(
-  activity: Activity,
-  callbacks: {
-    onEvaluation: (result: { met: boolean; feedback: string }) => void;
-    onComplete: () => void;
-  }
-) {
-  const evaluateObjective = tool({
-    name: "evaluate_objective",
-    description:
-      "Evaluate whether the TA's latest response meets the objective criteria. Call this silently after each TA turn.",
-    parameters: z.object({
-      criteria_met: z
-        .boolean()
-        .describe("Whether ALL success criteria have been met so far"),
-      feedback: z
-        .string()
-        .describe("Brief internal note on what the TA did well or still needs to do"),
-    }),
-    execute: async ({ criteria_met, feedback }) => {
-      callbacks.onEvaluation({ met: criteria_met, feedback });
-      return { acknowledged: true };
-    },
-  });
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import { 
+  LiveKitRoom, 
+  RoomAudioRenderer, 
+  VoiceAssistantControlBar, 
+  BarVisualizer, 
+  useDataChannel,
+  useTrackTranscription,
+  useRoomContext
+} from "@livekit/components-react";
+import { Track } from "livekit-client";
+import "@livekit/components-styles";
+import { getActivity } from "@/lib/activities";
+import { useSessionStore } from "@/lib/session-store";
 
-  const markComplete = tool({
-    name: "mark_complete",
-    description:
-      "Call this when the TA has fully met all success criteria for the objective. This ends the activity.",
-    parameters: z.object({
-      summary: z
-        .string()
-        .describe("Brief summary of how the TA met the criteria"),
-    }),
-    execute: async ({ summary }) => {
-      callbacks.onComplete();
-      return { session_complete: true, summary };
-    },
-  });
+export default function PracticePage() {
+  const { activityId } = useParams();
+  const activity = getActivity(activityId as string);
+  
+  const [token, setToken] = useState("");
+  const { objectiveMet, setObjectiveMet, incrementTurn } = useSessionStore();
 
-  const agent = new RealtimeAgent({
-    name: "student",
-    instructions: buildSystemPrompt(activity),
-    tools: [evaluateObjective, markComplete],
-  });
+  useEffect(() => {
+    fetch(`/api/token?activityId=${activityId}`)
+      .then((res) => res.json())
+      .then((data) => setToken(data.token));
+  }, [activityId]);
 
-  return agent;
-}
-```
+  if (!activity) return <div>Activity not found</div>;
+  if (!token) return <div className="flex h-screen items-center justify-center text-white bg-neutral-950">Initializing simulation...</div>;
 
----
+  return (
+    <LiveKitRoom
+      serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL}
+      token={token}
+      connect={true}
+      audio={true}
+      className="flex flex-col h-screen bg-neutral-950 text-neutral-100 font-sans"
+    >
+      <RoomAudioRenderer />
+      
+      {/* Invisible listener for Agent tool calls */}
+      <AgentDataListener onObjectiveMet={() => setObjectiveMet(true)} />
 
-## API Route: Ephemeral Key
+      <header className="p-4 border-b border-neutral-800 flex justify-between items-center">
+        <a href="/" className="text-neutral-400 hover:text-white transition-colors">← Back to Activities</a>
+        <h1 className="font-semibold">{activity.title}</h1>
+        <div className="w-24"></div> {/* Spacer for centering */}
+      </header>
 
-### `src/app/api/session/route.ts`
+      <div className="flex flex-1 p-6 gap-6 w-full max-w-7xl mx-auto overflow-hidden">
+        
+        {/* LEFT: VISUALIZER & MIC CONTROLS */}
+        <div className="w-1/3 flex flex-col items-center justify-center bg-neutral-900 rounded-xl border border-neutral-800 p-6">
+          <div className="h-48 w-full flex items-center justify-center">
+            <BarVisualizer state="speaking" barCount={7} className="h-full text-indigo-500" />
+          </div>
+          <p className="text-neutral-400 mt-4 mb-8 text-center text-sm">
+            {activity.studentProfile.name} is connected.
+          </p>
+          <VoiceAssistantControlBar />
+        </div>
 
-```typescript
-import { NextResponse } from "next/server";
+        {/* CENTER: TRANSCRIPT & COACH TIPS */}
+        <div className="w-1/3 flex flex-col bg-neutral-900 rounded-xl border border-neutral-800 p-6 overflow-hidden">
+          <h2 className="text-lg font-semibold mb-4 text-neutral-300">Transcript</h2>
+          <TranscriptPanel activity={activity} onUserSpoke={incrementTurn} />
+        </div>
 
-export async function POST() {
-  const response = await fetch(
-    "https://api.openai.com/v1/realtime/sessions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-realtime-preview",
-        voice: "alloy",
-        modalities: ["text", "audio"],
-        input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
-        turn_detection: {
-          type: "semantic_vad",
-          eagerness: "low",       // Patient — good for non-native speakers
-          interrupt_response: true,
-        },
-      }),
-    }
+        {/* RIGHT: OBJECTIVE TRACKING */}
+        <div className="w-1/3 flex flex-col bg-neutral-900 rounded-xl border border-neutral-800 p-6">
+          <h2 className="text-lg font-semibold mb-2">Objective</h2>
+          <p className="text-sm text-neutral-400 mb-6">{activity.objective.description}</p>
+          
+          <div className={`p-4 rounded-lg border transition-colors ${
+            objectiveMet ? 'bg-green-900/20 border-green-500 text-green-400' 
+                         : 'bg-neutral-800 border-neutral-700'
+          }`}>
+            {objectiveMet ? "✅ Success Criteria Met!" : "⏳ In Progress..."}
+          </div>
+
+          <h3 className="text-sm font-semibold mt-8 mb-3 text-neutral-300">Example Phrases</h3>
+          <ul className="text-sm text-neutral-500 space-y-3">
+            {activity.objective.examplePhrases.map((phrase, i) => (
+              <li key={i} className="pl-3 border-l-2 border-indigo-500/30">"{phrase}"</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </LiveKitRoom>
   );
-
-  const data = await response.json();
-  return NextResponse.json(data);
 }
-```
 
----
+// ---------------------------
+// Sub-components
+// ---------------------------
 
-## Pages
-
-### Home Page (`src/app/page.tsx`)
-
-Content structure:
-
-1. **Hero section** — "Interactional Competence Trainer" with a brief explanation:
-   > Teaching isn't just about knowing your subject — it's about managing conversations with students in real time. This tool lets you practice the interactional skills that matter most: explaining clearly, checking for understanding, handling tough questions, and redirecting gracefully.
-   > 
-   > Based on research into the interactional demands of ITA teaching assessments.
-
-2. **What is Interactional Competence?** — Short section (will be fleshed out later with rubric details). Key points:
-   - Competence is co-constructed — it's not just what you say, it's how the conversation unfolds
-   - Specific skills: encouraging questions, providing clear answers, checking comprehension, managing problematic responses
-   - These skills are practiced, not just learned
-
-3. **Activities grid** — Each activity renders as an `ActivityCard`:
-   - **Collapsed state**: title, level badge, short description, estimated time
-   - **Expanded state**: full description, objective title + description, example phrases (collapsible), "Start Practice" button linking to `/practice/[activityId]`
-
-### Practice Page (`src/app/practice/[activityId]/page.tsx`)
-
-A single, consistent layout for all activities:
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│  ← Back to Activities          Turn 3 / 12          ⏱ 2:34  │
-├────────────────────┬─────────────────────┬───────────────────┤
-│                    │                     │                   │
-│   AUDIO            │   TRANSCRIPT        │   OBJECTIVE       │
-│   VISUALIZER       │                     │                   │
-│                    │   Student: Hi, um,  │   ┌─────────────┐ │
-│   ┌──────────┐    │   I had a question  │   │ Explain and  │ │
-│   │          │    │   about my grade... │   │ confirm      │ │
-│   │  ◉ orb   │    │                     │   │ understanding│ │
-│   │          │    │   You: Sure, I'd    │   │              │ │
-│   └──────────┘    │   be happy to help  │   │ ○ Not yet    │ │
-│                    │   with that...      │   │   complete   │ │
-│  [ Click to Start ]│                     │   └─────────────┘ │
-│                    │   💡 Coach: Try     │                   │
-│                    │   giving a concrete │   Example phrases: │
-│                    │   example...        │   ▸ "So the rubric│
-│                    │                     │     is looking..." │
-│                    │                     │                   │
-├────────────────────┴─────────────────────┴───────────────────┤
-│                    [ End Session ]                            │
-└──────────────────────────────────────────────────────────────┘
-```
-
-**Three columns:**
-
-1. **Left — Audio Visualizer**: Large circular orb or waveform that reacts to audio. Shows "Click to Start" before connection. After connected, pulses with voice activity. Inspired by ElevenLabs' orb visualizer or LiveKit's audio indicator.
-
-2. **Center — Transcript Panel**: Scrolling chat log. Student messages in one color, TA (user) messages in another. Coach tips appear inline in a distinct accent color (amber/yellow) when triggered by turn count. This is where the "coach agent" feedback lives — no separate voice agent, just colored inline messages.
-
-3. **Right — Objective Tracker**: Shows the current objective title and description. A status indicator (incomplete → complete). Below that, a collapsible list of example phrases the TA can peek at for help.
-
-**Header bar**: Back link, turn counter (`Turn 3 / 12`), session timer.
-
-**Bottom**: End Session button (also triggered automatically when objective is marked complete or max turns reached).
-
----
-
-## Session Flow (Step by Step)
-
-```
-1. User clicks "Start Practice" on home page
-2. Navigate to /practice/[activityId]
-3. Page loads activity config from activities.ts
-4. User sees visualizer with "Click to Start" button
-5. On click:
-   a. POST /api/session → get ephemeral key
-   b. Create RealtimeAgent with activity-specific prompt + tools
-   c. Create RealtimeSession(agent)
-   d. session.connect({ apiKey: ephemeralKey })
-   e. WebRTC auto-configures mic + speaker
-6. Agent delivers opening line (student's first message)
-7. User speaks → STT → LLM → TTS → user hears student response
-8. After each exchange:
-   - Transcript updates from session history events
-   - Agent calls evaluate_objective tool silently
-   - Callback updates objective tracker UI
-   - Turn counter increments
-   - If turn count triggers a coachTip, it appears in transcript
-9. Session ends when:
-   - Agent calls mark_complete (objective met) → show success state
-   - Turn limit reached → show "time's up" state
-   - User clicks "End Session" → show early exit state
-10. End state: brief summary overlay with:
-    - ✅ Objective met / ❌ Not met
-    - Number of turns taken
-    - Link back to activities
-```
-
----
-
-## Coach Feedback (No Voice Agent — Inline Text)
-
-Instead of a separate coach voice agent, coach feedback appears as colored inline messages in the transcript panel. This is simpler and less disorienting than switching voices.
-
-```typescript
-// In the practice page component:
-// After each turn, check if a coach tip should fire
-
-const currentTurn = turnCount;
-const tips = activity.coachTips.filter(
-  (tip) => tip.afterTurn === currentTurn && !objectiveMet
-);
-
-tips.forEach((tip) => {
-  addToTranscript({
-    role: "coach",
-    text: tip.message,
-    timestamp: Date.now(),
+function AgentDataListener({ onObjectiveMet }: { onObjectiveMet: () => void }) {
+  useDataChannel((msg) => {
+    try {
+      const data = JSON.parse(new TextDecoder().decode(msg.payload));
+      if (data.type === 'EVALUATION' && data.met) {
+        onObjectiveMet();
+      }
+    } catch (e) { /* ignore */ }
   });
-});
-```
+  return null;
+}
 
-Coach messages render in the transcript with a distinct style: amber background, coach icon, slightly different font weight. Visually unmistakable from student/TA messages.
+function TranscriptPanel({ activity, onUserSpoke }: { activity: any, onUserSpoke: () => void }) {
+  const room = useRoomContext();
+  const transcripts = useTrackTranscription({ publication: true, source: Track.Source.Microphone, room });
+  const { turnCount } = useSessionStore();
 
----
+  // Trigger turn increment when user finishes a spoken segment
+  useEffect(() => {
+    const latestSegment = transcripts.segments[transcripts.segments.length - 1];
+    if (latestSegment && latestSegment.isLocal && latestSegment.final) {
+      onUserSpoke();
+    }
+  }, [transcripts.segments, onUserSpoke]);
 
-## Transcript Handling
+  return (
+    <div className="flex-1 overflow-y-auto space-y-4 pr-2 scrollbar-thin">
+      {transcripts.segments.map((segment) => (
+        <div key={segment.id} className={`flex flex-col ${segment.isLocal ? 'items-end' : 'items-start'}`}>
+          <span className="text-xs text-neutral-500 mb-1">{segment.isLocal ? 'You' : activity.studentProfile.name}</span>
+          <div className={`px-4 py-2 rounded-lg text-sm max-w-[85%] ${
+            segment.isLocal ? 'bg-indigo-600 text-white' : 'bg-neutral-800 text-neutral-200'
+          }`}>
+            {segment.text}
+          </div>
+        </div>
+      ))}
 
-The OpenAI Agents SDK emits history events that you subscribe to:
-
-```typescript
-// Listen for transcript updates
-session.on("history_updated", () => {
-  const history = session.history;
-  // Map to your transcript format
-  const entries = history.map((item) => ({
-    role: item.role === "user" ? "ta" : "student",
-    text: item.content?.[0]?.transcript || item.content?.[0]?.text || "",
-    timestamp: Date.now(),
-  }));
-  setTranscript(entries);
-});
-
-// Also listen for partial transcripts for real-time display
-session.on("history_added", (event) => {
-  // Append new item as it arrives
-});
-```
-
----
-
-## Turn Detection Settings (Important for ITA Population)
-
-```typescript
-turn_detection: {
-  type: "semantic_vad",     // Context-aware, not just silence-based
-  eagerness: "low",         // Don't jump in quickly — ITAs may pause to think
-  interrupt_response: true, // Let the TA interrupt the student (natural in teaching)
+      {/* Inject Coach Tips inline based on turn count */}
+      {activity.coachTips.map((tip: any) => {
+        if (turnCount >= tip.afterTurn) {
+          return (
+            <div key={tip.afterTurn} className="flex flex-col items-center my-4">
+              <div className="px-4 py-2 rounded-lg text-sm bg-amber-900/30 border border-amber-700/50 text-amber-200 text-center max-w-[90%]">
+                {tip.message}
+              </div>
+            </div>
+          );
+        }
+        return null;
+      })}
+    </div>
+  );
 }
 ```
 
-Non-native speakers pause longer between phrases. `semantic_vad` with low eagerness is the right default. This can be tuned per-activity in the config if needed (add an optional `turnDetection` field to the Activity type).
-
 ---
 
-## Session State Store
+## 5. Session State Store (Zustand)
+
+Keeps track of local UI logic (like turns and objectives) without over-complicating React component trees.
 
 ### `src/lib/session-store.ts`
-
 ```typescript
 import { create } from "zustand";
 
-interface TranscriptEntry {
-  role: "student" | "ta" | "coach";
-  text: string;
-  timestamp: number;
-}
-
 interface SessionState {
-  status: "idle" | "connecting" | "active" | "complete";
   turnCount: number;
   objectiveMet: boolean;
-  transcript: TranscriptEntry[];
-  elapsedSeconds: number;
-
-  // Actions
-  setStatus: (s: SessionState["status"]) => void;
   incrementTurn: () => void;
   setObjectiveMet: (met: boolean) => void;
-  addTranscriptEntry: (entry: TranscriptEntry) => void;
-  setTranscript: (entries: TranscriptEntry[]) => void;
-  tick: () => void;
   reset: () => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
-  status: "idle",
   turnCount: 0,
   objectiveMet: false,
-  transcript: [],
-  elapsedSeconds: 0,
-
-  setStatus: (status) => set({ status }),
   incrementTurn: () => set((s) => ({ turnCount: s.turnCount + 1 })),
   setObjectiveMet: (met) => set({ objectiveMet: met }),
-  addTranscriptEntry: (entry) =>
-    set((s) => ({ transcript: [...s.transcript, entry] })),
-  setTranscript: (entries) => set({ transcript: entries }),
-  tick: () => set((s) => ({ elapsedSeconds: s.elapsedSeconds + 1 })),
-  reset: () =>
-    set({
-      status: "idle",
-      turnCount: 0,
-      objectiveMet: false,
-      transcript: [],
-      elapsedSeconds: 0,
-    }),
+  reset: () => set({ turnCount: 0, objectiveMet: false }),
 }));
 ```
 
 ---
 
-## Dependencies
+## 6. Environment & Package Setup
+
+### `package.json` setup
+We use `concurrently` so a single `npm run dev` boots both the web app and the Node worker.
 
 ```json
 {
+  "name": "ita-trainer",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev:next": "next dev",
+    "dev:agent": "tsx agent/main.ts dev",
+    "dev": "concurrently -c \"cyan,magenta\" \"npm run dev:next\" \"npm run dev:agent\"",
+    "build": "next build",
+    "start": "next start"
+  },
   "dependencies": {
-    "next": "^15",
-    "react": "^19",
-    "react-dom": "^19",
-    "@openai/agents": "latest",
-    "zod": "^4",
-    "zustand": "^5",
-    "class-variance-authority": "^0.7",
-    "clsx": "^2",
-    "tailwind-merge": "^2",
-    "lucide-react": "latest"
+    "@livekit/agents": "^1.x",
+    "@livekit/agents-plugin-openai": "^1.x",
+    "@livekit/components-react": "latest",
+    "@livekit/components-styles": "latest",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.0",
+    "dotenv": "^16.4.5",
+    "livekit-client": "latest",
+    "livekit-server-sdk": "latest",
+    "lucide-react": "latest",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^2.2.1",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "concurrently": "^8.2.2",
+    "tailwindcss": "^3.4.1",
+    "tsx": "^4.7.1",
+    "typescript": "^5"
   }
 }
 ```
 
-Plus shadcn/ui components installed via `npx shadcn@latest add button card badge collapsible` etc.
+### `.env.local`
+You need a free account at [LiveKit Cloud](https://cloud.livekit.io/) to get your keys.
+```env
+# Shared securely on the server (Next.js API & Node.js Agent)
+LIVEKIT_API_KEY=your_livekit_api_key
+LIVEKIT_API_SECRET=your_livekit_api_secret
+LIVEKIT_URL=wss://your-project.livekit.cloud
+OPENAI_API_KEY=your_llm_api_key
+
+# Exposed to Next.js Browser Client
+NEXT_PUBLIC_LIVEKIT_URL=wss://your-project.livekit.cloud
+```
 
 ---
 
 ## Build Phases
 
-### Phase 1: Skeleton + Voice Loop (2–3 days)
-- `npx create-next-app@latest` with TypeScript + Tailwind + App Router
-- Install shadcn/ui, set up base components
-- Create `activities.ts` with 1 hardcoded activity
-- Build `/api/session` route for ephemeral key
-- Build practice page with basic `RealtimeSession` connection
-- Get voice working: talk to the simulated student, hear a response
-- **Milestone**: You can have a voice conversation with the simulated student
+### Phase 1: Foundation & "Hello World" (Day 1)
+1. Initialize Next.js app, install dependencies, and configure `package.json` scripts.
+2. Add `.env.local` with LiveKit and LLM keys.
+3. Build the `/api/token` route.
+4. Create minimal `agent/main.ts` and `agent/agent.ts` with a hardcoded persona.
+5. Build a skeleton `practice/[activityId]/page.tsx` just to render `<LiveKitRoom>` and check the mic.
+6. **Milestone**: Run `npm run dev`. Connect to the room via browser, see the Node worker log that it joined, and hear the AI say "Hello".
 
-### Phase 2: Transcript + Tools (3–4 days)
-- Wire up `history_updated` / `history_added` events to TranscriptPanel
-- Implement `evaluate_objective` and `mark_complete` tools
-- Build ObjectiveTracker component
-- Add turn counter + turn limit logic
-- Add coach tip injection based on turn count
-- **Milestone**: Full activity loop — transcript appears, objective tracks, session ends
+### Phase 2: Configuration & Activities (Day 2)
+1. Create `activities.ts` and paste in the 3 base activities.
+2. Update `agent.ts` to parse the `activityId` from the room name and dynamically inject the Persona instructions.
+3. **Milestone**: Navigating to `/practice/clarify-rubric` results in a confused student, while `/practice/redirect-question` results in an off-topic student. 
 
-### Phase 3: Home Page + All Activities (2–3 days)
-- Build home page with interactional competence explanation
-- Build ActivityCard with expand/collapse
-- Add all 3 starter activities to `activities.ts`
-- Wire routing: click "Start Practice" → `/practice/[id]`
-- **Milestone**: User can browse activities, pick one, and practice
+### Phase 3: Evaluation Tools & UI Data Binding (Day 3)
+1. Add the `evaluate_objective` tool to the agent's `FunctionContext`.
+2. Send data channel messages from the Agent when the tool fires.
+3. Create the `AgentDataListener` in the frontend to catch the evaluation events.
+4. Integrate the Zustand `session-store.ts`.
+5. **Milestone**: The "Objective" UI panel flips to "✅ Success Criteria Met!" automatically when you successfully explain the rubric.
 
-### Phase 4: Polish (2–3 days)
-- Audio visualizer (canvas-based orb that reacts to audio levels)
-- Session end state / summary overlay
-- Coach message styling
-- Turn detection tuning
-- Mobile responsiveness
-- **Milestone**: Looks good, feels good, ready for user testing
-
----
-
-## Key Simplifications vs. Original Plan
-
-| Original plan had | This plan does instead |
-|---|---|
-| Supabase database | No database — activities in a `.ts` file |
-| Coach voice agent with handoff | Coach tips as colored inline text in transcript |
-| Server-side rubric scoring endpoint | Model self-evaluates via tools (good enough for MVP) |
-| Session persistence + history page | No persistence — practice and done |
-| Debrief generation | Simple end-of-session summary overlay |
-| Multiple objectives per activity | One objective per activity — keeps it focused |
-| SvelteKit | Next.js (for shadcn + ecosystem) |
-
----
-
-## What to Build First (Right Now)
-
-1. `npx create-next-app@latest ita-trainer --typescript --tailwind --app --src-dir`
-2. `npx shadcn@latest init`
-3. `npm install @openai/agents zod zustand`
-4. Create `src/lib/activities.ts` — paste the config above
-5. Create `src/app/api/session/route.ts` — ephemeral key endpoint
-6. Create `src/app/practice/[activityId]/page.tsx` — minimal: a button that connects to the Realtime API and lets you talk
-7. Talk to the student. See if it works.
-
-Everything else layers on top of that working voice loop.
-
----
-
-## Reference: OpenAI Realtime Agents Demo
-
-The `openai/openai-realtime-agents` repo on GitHub is a Next.js app that demonstrates exactly the patterns you need. It shows:
-- Ephemeral key generation in an API route
-- `RealtimeAgent` configuration with tools and handoffs
-- WebRTC connection in the browser
-- Transcript rendering from data channel events
-- Agent config files that define each scenario
-
-You can clone that repo as a reference or even fork it as your starting point, replacing their agent configs with your `activities.ts` pattern.
+### Phase 4: Polish & Transcripts (Day 4)
+1. Build the `TranscriptPanel` using LiveKit's `useTrackTranscription`.
+2. Wire the transcript finalization event to the Zustand `incrementTurn` action.
+3. Inject the `coachTips` into the transcript UI conditionally based on turn count.
+4. Finalize Tailwind styling (dark mode, layout, visualizer).
+5. Build the Home page (`page.tsx`) with Activity Cards linking to the practice routes.
+6. **Milestone**: Full application complete, polished, and ready for user testing.
