@@ -16,6 +16,10 @@ Scope:
 - Update `/api/token` to issue room tokens using an `activityId` query param.
 - Add `/practice/[activityId]` page that connects to a LiveKit room.
 
+1. Terminal A: pnpm dev
+2. Terminal B: pnpm --filter ita-trainer-agent dev
+3. Open an activity and start practice.
+
 Test checklist:
 1. Start web app and agent in separate terminals.
 2. Open home page and launch a practice session.

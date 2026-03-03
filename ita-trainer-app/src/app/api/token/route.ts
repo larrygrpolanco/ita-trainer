@@ -1,11 +1,23 @@
 import { NextResponse } from "next/server";
-import { AccessToken } from "livekit-server-sdk";
+import { AccessToken, AgentDispatchClient } from "livekit-server-sdk";
 
 const API_KEY = process.env.LIVEKIT_API_KEY;
 const API_SECRET = process.env.LIVEKIT_API_SECRET;
 const LIVEKIT_URL = process.env.LIVEKIT_URL ?? process.env.NEXT_PUBLIC_LIVEKIT_URL;
 
 export const revalidate = 0;
+
+function toHttpLivekitUrl(url: string): string {
+  if (url.startsWith("wss://")) {
+    return `https://${url.slice(6)}`;
+  }
+
+  if (url.startsWith("ws://")) {
+    return `http://${url.slice(5)}`;
+  }
+
+  return url;
+}
 
 export async function GET(request: Request) {
   try {
@@ -45,12 +57,26 @@ export async function GET(request: Request) {
       canPublishData: true,
     });
 
+    const dispatchClient = new AgentDispatchClient(
+      toHttpLivekitUrl(LIVEKIT_URL),
+      API_KEY,
+      API_SECRET
+    );
+
+    const dispatch = await dispatchClient.createDispatch(roomName, "ita-student-agent");
+    console.info("Agent dispatch created", {
+      roomName,
+      dispatchId: dispatch.id,
+      agentName: dispatch.agentName,
+    });
+
     return NextResponse.json(
       {
         token: await accessToken.toJwt(),
         url: LIVEKIT_URL,
         roomName,
         participantIdentity,
+        agentDispatchId: dispatch.id,
       },
       {
         headers: {

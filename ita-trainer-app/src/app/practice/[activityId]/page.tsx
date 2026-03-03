@@ -3,8 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
-import { AgentSessionView_01 } from "@/components/agents-ui/blocks/agent-session-view-01";
+import {
+  LiveKitRoom,
+  RoomAudioRenderer,
+  StartAudio,
+  VoiceAssistantControlBar,
+  useVoiceAssistant,
+} from "@livekit/components-react";
+import { getActivity } from "@/lib/activities";
 
 type ConnectionDetails = {
   token: string;
@@ -17,6 +23,7 @@ export default function PracticePage() {
   const [connectionDetails, setConnectionDetails] = useState<ConnectionDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const activityId = params.activityId ?? "";
+  const activity = useMemo(() => getActivity(activityId), [activityId]);
 
   useEffect(() => {
     let active = true;
@@ -86,7 +93,9 @@ export default function PracticePage() {
             <Link href="/" className="text-sm text-neutral-300 hover:text-white">
               {"<-"} Back to activities
             </Link>
-            <h1 className="text-lg font-semibold tracking-tight md:text-xl">Practice: {activityId}</h1>
+            <h1 className="text-lg font-semibold tracking-tight md:text-xl">
+              Practice: {activity?.title ?? activityId}
+            </h1>
           </div>
           <p className="text-sm text-neutral-300">{statusText}</p>
         </div>
@@ -110,20 +119,61 @@ export default function PracticePage() {
             serverUrl={connectionDetails.url}
             token={connectionDetails.token}
             connect
-            audio
-            className="h-full overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900"
+            audio={{
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+              voiceIsolation: true,
+            }}
+            className="h-full overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900 p-4 md:p-6"
           >
             <RoomAudioRenderer />
-            <AgentSessionView_01
-              preConnectMessage="Connecting to your student..."
-              supportsVideoInput={false}
-              supportsScreenShare={false}
-              audioVisualizerType="aura"
-              className="h-full"
-            />
+            <PracticeVoiceSession />
           </LiveKitRoom>
         )}
       </div>
     </main>
+  );
+}
+
+function PracticeVoiceSession() {
+  const { state, agentTranscriptions } = useVoiceAssistant();
+
+  return (
+    <div className="flex h-full flex-col gap-4">
+      <div className="grid flex-1 gap-4 lg:grid-cols-[1.1fr_1.6fr]">
+        <section className="rounded-xl border border-neutral-800 bg-neutral-950/70 p-5">
+          <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Session status</p>
+          <p className="mt-2 text-lg font-semibold capitalize text-neutral-100">{state}</p>
+          <p className="mt-3 text-sm leading-6 text-neutral-300">
+            If you do not hear audio, click the button below to allow playback in your browser.
+          </p>
+          <StartAudio
+            label="Enable audio"
+            className="mt-4 inline-flex rounded-md border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800"
+          />
+        </section>
+
+        <section className="rounded-xl border border-neutral-800 bg-neutral-950/70 p-5">
+          <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Student transcript</p>
+          <div className="mt-3 max-h-[40vh] space-y-2 overflow-y-auto pr-1">
+            {agentTranscriptions.length === 0 ? (
+              <p className="text-sm text-neutral-400">Waiting for the student to speak...</p>
+            ) : (
+              agentTranscriptions.map((segment, index) => (
+                <p key={`${segment.id}-${index}`} className="rounded-lg bg-neutral-800/70 p-3 text-sm text-neutral-100">
+                  {segment.text}
+                </p>
+              ))
+            )}
+          </div>
+        </section>
+      </div>
+
+      <VoiceAssistantControlBar
+        controls={{ microphone: true, leave: true }}
+        className="rounded-xl border border-neutral-800 bg-neutral-950/80 p-3"
+      />
+    </div>
   );
 }

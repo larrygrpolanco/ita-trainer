@@ -6,6 +6,7 @@ import {
   voice,
 } from "@livekit/agents";
 import * as openai from "@livekit/agents-plugin-openai";
+import { BackgroundVoiceCancellation } from "@livekit/noise-cancellation-node";
 import dotenv from "dotenv";
 import { fileURLToPath } from "node:url";
 import { createStudentAgent, getOpeningLine } from "./agent";
@@ -27,6 +28,8 @@ export default defineAgent({
   entry: async (ctx: JobContext) => {
     const roomName = ctx.room.name ?? "";
     const activityId = getActivityIdFromRoomName(roomName);
+    console.info("Agent job received", { roomName, activityId });
+
     const agent = createStudentAgent(activityId);
 
     const session = new voice.AgentSession({
@@ -44,11 +47,15 @@ export default defineAgent({
     await session.start({
       agent,
       room: ctx.room,
+      inputOptions: {
+        noiseCancellation: BackgroundVoiceCancellation(),
+      },
     });
 
     await ctx.connect();
 
     const openingLine = getOpeningLine(activityId);
+    console.info("Sending opening line", { activityId, openingLine });
     const reply = session.generateReply({
       instructions: `Start the conversation naturally with this exact opening line: "${openingLine}"`,
     });

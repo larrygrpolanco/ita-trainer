@@ -1,5 +1,6 @@
 import { ServerOptions, cli, defineAgent, voice, } from "@livekit/agents";
 import * as openai from "@livekit/agents-plugin-openai";
+import { BackgroundVoiceCancellation } from "@livekit/noise-cancellation-node";
 import dotenv from "dotenv";
 import { fileURLToPath } from "node:url";
 import { createStudentAgent, getOpeningLine } from "./agent";
@@ -32,6 +33,9 @@ export default defineAgent({
         await session.start({
             agent,
             room: ctx.room,
+            inputOptions: {
+                noiseCancellation: BackgroundVoiceCancellation(),
+            },
         });
         await ctx.connect();
         const openingLine = getOpeningLine(activityId);
