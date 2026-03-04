@@ -8,6 +8,24 @@ const LIVEKIT_URL = process.env.LIVEKIT_URL ?? process.env.NEXT_PUBLIC_LIVEKIT_U
 
 export const revalidate = 0;
 
+const TOKEN_UNAVAILABLE_MESSAGE =
+  "Practice is temporarily unavailable right now. This can happen when service usage limits are reached. Please try again soon or contact us at ChaoneLabs.com.";
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+function isUsageLimitError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return ["quota", "limit", "billing", "insufficient", "resource exhausted", "too many requests"].some(
+    (keyword) => normalized.includes(keyword)
+  );
+}
+
 function toHttpLivekitUrl(url: string): string {
   if (url.startsWith("wss://")) {
     return `https://${url.slice(6)}`;
@@ -95,10 +113,25 @@ export async function GET(request: Request) {
       }
     );
   } catch (error) {
-    if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    const internalMessage = toErrorMessage(error);
+    console.error("Token route failure", { error: internalMessage });
+
+    if (isUsageLimitError(internalMessage)) {
+      return NextResponse.json(
+        {
+          error: TOKEN_UNAVAILABLE_MESSAGE,
+          code: "SERVICE_LIMIT_REACHED",
+        },
+        { status: 503 }
+      );
     }
 
-    return NextResponse.json({ error: "Unknown token error" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: TOKEN_UNAVAILABLE_MESSAGE,
+        code: "SERVICE_TEMPORARILY_UNAVAILABLE",
+      },
+      { status: 503 }
+    );
   }
 }

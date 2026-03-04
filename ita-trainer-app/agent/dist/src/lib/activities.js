@@ -35,7 +35,7 @@ const activities = [
         title: "That's Not On the Exam",
         shortDescription: "A biology student asks about next unit material during review and needs a respectful redirect.",
         fullDescription: "You are leading an Intro Biology midterm review. The exam covers cell structure, but a student asks about DNA replication from next unit. Your goal is to acknowledge the question, explain why it is out of scope for this review, and redirect back to exam content while preserving rapport.",
-        level: "intermediate",
+        level: "beginner",
         estimatedMinutes: 4,
         maxTurns: 8,
         studentProfile: {

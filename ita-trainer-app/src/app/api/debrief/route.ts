@@ -17,8 +17,15 @@ type DebriefResponse = {
   skillStatus: "yes" | "partially" | "not yet";
 };
 
+type OpenAIDebriefResult = {
+  debrief: DebriefResponse | null;
+  limitReached: boolean;
+};
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_DEBRIEF_MODEL = process.env.OPENAI_DEBRIEF_MODEL ?? "gpt-4.1-mini";
+const DEBRIEF_LIMIT_MESSAGE =
+  "Coaching feedback is temporarily unavailable because service usage limits were reached. Please try again later or contact us at ChaoneLabs.com.";
 
 function isTranscriptLine(value: unknown): value is TranscriptLine {
   if (!value || typeof value !== "object") {
@@ -81,14 +88,14 @@ function extractOutputText(payload: unknown): string | null {
   return null;
 }
 
-async function generateDebriefWithOpenAI(activityId: string, transcript: TranscriptLine[]): Promise<DebriefResponse | null> {
+async function generateDebriefWithOpenAI(activityId: string, transcript: TranscriptLine[]): Promise<OpenAIDebriefResult> {
   if (!OPENAI_API_KEY) {
-    return null;
+    return { debrief: null, limitReached: false };
   }
 
   const activity = getActivity(activityId);
   if (!activity) {
-    return null;
+    return { debrief: null, limitReached: false };
   }
 
   const transcriptBlock = toTranscriptBlock(transcript);
@@ -137,13 +144,23 @@ async function generateDebriefWithOpenAI(activityId: string, transcript: Transcr
     });
 
     if (!response.ok) {
-      return null;
+      const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+      const message = payload?.error?.message?.toLowerCase() ?? "";
+      const limitReached =
+        response.status === 429 ||
+        response.status === 402 ||
+        message.includes("quota") ||
+        message.includes("billing") ||
+        message.includes("insufficient") ||
+        message.includes("rate limit");
+
+      return { debrief: null, limitReached };
     }
 
     const payload = (await response.json()) as unknown;
     const outputText = extractOutputText(payload);
     if (!outputText) {
-      return null;
+      return { debrief: null, limitReached: false };
     }
 
     const parsed = JSON.parse(outputText) as Partial<DebriefResponse>;
@@ -152,16 +169,19 @@ async function generateDebriefWithOpenAI(activityId: string, transcript: Transcr
       typeof parsed.nextStep !== "string" ||
       (parsed.skillStatus !== "yes" && parsed.skillStatus !== "partially" && parsed.skillStatus !== "not yet")
     ) {
-      return null;
+      return { debrief: null, limitReached: false };
     }
 
     return {
-      didWell: parsed.didWell,
-      nextStep: parsed.nextStep,
-      skillStatus: parsed.skillStatus,
+      debrief: {
+        didWell: parsed.didWell,
+        nextStep: parsed.nextStep,
+        skillStatus: parsed.skillStatus,
+      },
+      limitReached: false,
     };
   } catch {
-    return null;
+    return { debrief: null, limitReached: false };
   }
 }
 
@@ -185,17 +205,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Transcript is too short for debrief" }, { status: 400 });
     }
 
-    const openAiDebrief = await generateDebriefWithOpenAI(activityId, validTranscript);
-    if (openAiDebrief) {
-      return NextResponse.json(openAiDebrief);
+    const openAiResult = await generateDebriefWithOpenAI(activityId, validTranscript);
+    if (openAiResult.limitReached) {
+      return NextResponse.json({ error: DEBRIEF_LIMIT_MESSAGE, code: "DEBRIEF_LIMIT_REACHED" }, { status: 503 });
+    }
+
+    if (openAiResult.debrief) {
+      return NextResponse.json(openAiResult.debrief);
     }
 
     return NextResponse.json(buildGenericDebrief(activity.objective.title));
   } catch (error) {
-    if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ error: "Unknown debrief error" }, { status: 500 });
+    console.error("Debrief route failure", { error: error instanceof Error ? error.message : String(error) });
+    return NextResponse.json(
+      {
+        error:
+          "Coaching feedback is temporarily unavailable. Please try again shortly or contact us at ChaoneLabs.com.",
+      },
+      { status: 503 }
+    );
   }
 }

@@ -11,7 +11,7 @@ import {
   useTranscriptions,
   useVoiceAssistant,
 } from "@livekit/components-react";
-import { Mic, MicOff, RotateCcw, Square } from "lucide-react";
+import { ChevronLeft, Mic, MicOff, RotateCcw, Square } from "lucide-react";
 import { AgentAudioVisualizerGrid } from "@/components/agents-ui/agent-audio-visualizer-grid";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -39,6 +39,23 @@ type DebriefResponse = {
   nextStep: string;
   skillStatus: "yes" | "partially" | "not yet";
 };
+
+const SUPPORT_MESSAGE =
+  "Practice is temporarily unavailable right now. This technology is experimental and may make mistakes. Try resetting the session if something goes wrong.";
+
+function toUserFacingErrorMessage(value: unknown, fallback = SUPPORT_MESSAGE): string {
+  const message = value instanceof Error ? value.message : "";
+  if (!message.trim()) {
+    return fallback;
+  }
+
+  const normalized = message.toLowerCase();
+  if (normalized.includes("failed to fetch") || normalized.includes("network")) {
+    return fallback;
+  }
+
+  return message;
+}
 
 function collapseFinalTranscript(entries: TranscriptEntry[]): TranscriptEntry[] {
   const collapsed: TranscriptEntry[] = [];
@@ -188,8 +205,7 @@ export default function PracticePage() {
           return;
         }
 
-        const message = loadError instanceof Error ? loadError.message : "Unknown connection error";
-        setError(message);
+        setError(toUserFacingErrorMessage(loadError));
       }
     };
 
@@ -207,14 +223,13 @@ export default function PracticePage() {
     try {
       await fetchConnectionDetails();
     } catch (resetError) {
-      const message = resetError instanceof Error ? resetError.message : "Unknown reset error";
-      setError(message);
+      setError(toUserFacingErrorMessage(resetError));
     }
   }, [fetchConnectionDetails]);
 
   const statusText = useMemo(() => {
     if (error) {
-      return `Connection failed: ${error}`;
+      return "Practice is temporarily unavailable";
     }
 
     if (!connectionDetails) {
@@ -230,10 +245,14 @@ export default function PracticePage() {
 
   if (activityId && !activity) {
     return (
-      <main className="min-h-screen bg-slate-50 px-6 py-10 text-slate-900">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-4">
-          <Link href="/" className="text-sm text-slate-500 hover:text-slate-900">
-            {"<-"} Back to activities
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#d9eadf_0%,_#f6f2e3_45%,_#fffef8_100%)] px-6 py-10 text-slate-900">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 rounded-2xl border border-emerald-200 bg-white/90 p-4 shadow-[0_16px_30px_-24px_rgba(20,83,45,0.45)]">
+          <Link
+            href="/"
+            className="inline-flex w-fit items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50/70 px-3 py-1 text-sm font-medium text-emerald-800 hover:bg-emerald-100"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Back to activities
           </Link>
           <h1 className="text-2xl font-semibold">Activity not found</h1>
           <p className="text-sm text-slate-600">
@@ -245,14 +264,18 @@ export default function PracticePage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-100 via-slate-50 to-white text-slate-900">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#d9eadf_0%,_#f6f2e3_45%,_#fffef8_100%)] text-slate-900">
       <header className="px-4 pt-4 md:pt-6">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-4">
-          <Link href="/" className="text-sm font-medium text-slate-600 hover:text-slate-900">
-            {"<-"} Back to activities
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between rounded-2xl border border-emerald-200/80 bg-white/90 px-4 py-4 shadow-[0_16px_35px_-28px_rgba(20,83,45,0.45)]">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50/70 px-3 py-1 text-sm font-medium text-emerald-800 transition hover:bg-emerald-100 hover:text-emerald-900"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Back to activities
           </Link>
           <p className="max-w-[58%] truncate text-sm font-medium text-slate-700">{activity?.title ?? activityId}</p>
-          <p className="hidden text-xs text-slate-500 md:block">{statusText}</p>
+          <p className="hidden text-xs text-emerald-800 md:block">{statusText}</p>
         </div>
       </header>
 
@@ -264,8 +287,35 @@ export default function PracticePage() {
         )}
 
         {error && (
-          <div className="flex min-h-[55vh] items-center justify-center rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700 lg:h-full lg:min-h-0">
-            {error}
+          <div className="flex min-h-[55vh] items-center justify-center rounded-2xl border border-red-200 bg-red-50 p-6 lg:h-full lg:min-h-0">
+            <div className="max-w-xl space-y-3 text-red-800">
+              <p className="text-base font-semibold">Practice is currently unavailable</p>
+              <p className="text-sm leading-6">{error || SUPPORT_MESSAGE}</p>
+              <p className="text-sm leading-6">
+                If this continues, contact us at{" "}
+                <a
+                  href="https://www.chaonelabs.com/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold underline underline-offset-2"
+                >
+                  ChaoneLabs.com
+                </a>{" "}
+                or open an issue on{" "}
+                <a
+                  href="https://github.com/larrygrpolanco/ita-trainer"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold underline underline-offset-2"
+                >
+                  GitHub
+                </a>
+                .
+              </p>
+              <Button type="button" variant="outline" size="sm" onClick={() => void handleResetSession()}>
+                Try again
+              </Button>
+            </div>
           </div>
         )}
 
@@ -281,7 +331,7 @@ export default function PracticePage() {
               autoGainControl: true,
               voiceIsolation: true,
             }}
-            className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 md:p-6 lg:h-full"
+            className="overflow-hidden rounded-2xl border border-emerald-200/70 bg-white/95 p-4 shadow-[0_18px_45px_-34px_rgba(20,83,45,0.55)] md:p-6 lg:h-full"
           >
             <RoomAudioRenderer />
             <PracticeVoiceSession
@@ -418,8 +468,12 @@ function PracticeVoiceSession({
           skillStatus: data.skillStatus,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to generate coaching feedback right now.";
-        setDebriefError(message);
+        setDebriefError(
+          toUserFacingErrorMessage(
+            error,
+            "Coaching feedback is temporarily unavailable. Please try again shortly or contact us at ChaoneLabs.com."
+          )
+        );
       } finally {
         setIsDebriefLoading(false);
       }
@@ -492,24 +546,32 @@ function PracticeVoiceSession({
   }, [activity.maxTurns, endSession, rows.itaTurns, sessionStarted]);
 
   const assistantVisualizerColor =
-    state === "speaking" ? "#0284c7" : state === "thinking" ? "#0f766e" : "#64748b";
+    state === "speaking" ? "#166534" : state === "thinking" ? "#a16207" : "#64748b";
 
   return (
     <div className="grid gap-4 lg:h-full lg:min-h-0 lg:grid-cols-12">
-        <section className="flex min-h-[420px] min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-5 lg:col-span-5 lg:min-h-0">
+        <section className="flex min-h-[420px] min-w-0 flex-col rounded-2xl border border-emerald-200/70 bg-gradient-to-b from-white to-emerald-50/20 p-5 lg:col-span-5 lg:min-h-0">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Live transcript</p>
             <p className="text-xs text-slate-500">Updates in real time</p>
           </div>
 
-          <ScrollArea className="h-[320px] rounded-xl border border-slate-200 bg-slate-50/60 p-3 lg:min-h-0 lg:flex-1 lg:h-auto">
+          <ScrollArea className="h-[320px] rounded-xl border border-emerald-100 bg-emerald-50/30 p-3 lg:h-auto lg:min-h-0 lg:flex-1">
             <div className="space-y-2 pr-2">
               {rows.items.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-                  {!sessionStarted
-                    ? "Start the session to begin the conversation."
-                    : "Listening... transcript will appear here in real time."}
-                </p>
+                <div className="space-y-2">
+                  {!sessionStarted && (
+                    <p className="rounded-xl border border-red-200/80 bg-red-50/75 px-4 py-3 text-sm leading-6 text-red-800">
+                      This technology is experimental and will make mistakes. Try resetting if something goes wrong.
+                      If you have questions, contact us at ChaoneLabs.com.
+                    </p>
+                  )}
+                  <p className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
+                    {!sessionStarted
+                      ? "Start the session to begin the conversation."
+                      : "Listening... transcript will appear here in real time."}
+                  </p>
+                </div>
               ) : (
                 rows.items.map((item) => {
                   return (
@@ -537,7 +599,30 @@ function PracticeVoiceSession({
                   {isDebriefLoading ? (
                     <p>Generating feedback...</p>
                   ) : debriefError ? (
-                    <p className="text-red-700">{debriefError}</p>
+                    <div className="space-y-2 text-red-700">
+                      <p>{debriefError}</p>
+                      <p className="text-xs leading-5 text-red-800">
+                        If this keeps happening, contact us at{" "}
+                        <a
+                          href="https://www.chaonelabs.com/"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-semibold underline underline-offset-2"
+                        >
+                          ChaoneLabs.com
+                        </a>{" "}
+                        or open an issue on{" "}
+                        <a
+                          href="https://github.com/larrygrpolanco/ita-trainer"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-semibold underline underline-offset-2"
+                        >
+                          GitHub
+                        </a>
+                        .
+                      </p>
+                    </div>
                   ) : debrief ? (
                     <div className="space-y-2">
                       <p>
@@ -561,14 +646,14 @@ function PracticeVoiceSession({
           </ScrollArea>
         </section>
 
-        <section className="flex min-h-[320px] flex-col rounded-2xl border border-slate-200 bg-white p-5 lg:col-span-3 lg:min-h-0">
+        <section className="flex min-h-[320px] flex-col rounded-2xl border border-amber-200/70 bg-gradient-to-b from-white to-amber-50/30 p-5 lg:col-span-3 lg:min-h-0">
           <p className="text-center text-xs uppercase tracking-[0.16em] text-slate-500">Scenario + status</p>
           <h2 className="mt-2 text-left text-lg font-semibold text-slate-900">{activity.title}</h2>
           <p className="mt-2 text-left text-xs leading-6 text-slate-600">{activity.shortDescription}</p>
           <Separator className="my-4 bg-slate-200" />
 
           <p className="text-center text-xs uppercase tracking-[0.16em] text-slate-500">Voice activity</p>
-          <div className="mt-3 flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="mt-3 flex items-center justify-center rounded-xl border border-amber-200/80 bg-amber-50/45 p-3">
             {!sessionStarted ? (
               <button
                 type="button"
@@ -587,22 +672,22 @@ function PracticeVoiceSession({
                   setIsDebriefLoading(false);
                   onStartSession();
                 }}
-                className="relative flex h-[190px] w-[190px] items-center justify-center rounded-xl border border-cyan-200 bg-cyan-50/70 transition-colors duration-250 hover:border-cyan-400 hover:bg-cyan-100/70 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100"
+                className="relative flex h-[190px] w-[190px] items-center justify-center rounded-xl border border-emerald-300 bg-emerald-50/70 transition-colors duration-250 hover:border-emerald-500 hover:bg-emerald-100/70 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100"
               >
                 <AgentAudioVisualizerGrid
                   state="thinking"
                   size="md"
                   rowCount={8}
                   columnCount={8}
-                  color={hasStoppedSession ? "#64748b" : startHover ? "#0284c7" : "#22d3ee"}
+                  color={hasStoppedSession ? "#64748b" : startHover ? "#166534" : "#22c55e"}
                   className="gap-2"
                 />
-                <span className="pointer-events-none absolute bottom-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-700">
+                <span className="pointer-events-none absolute bottom-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
                   {hasStoppedSession ? "Click to reset" : "Click to start"}
                 </span>
               </button>
             ) : (
-              <div className="flex h-[190px] w-[190px] items-center justify-center rounded-xl border border-cyan-200/50 bg-cyan-50/25">
+              <div className="flex h-[190px] w-[190px] items-center justify-center rounded-xl border border-emerald-200/60 bg-emerald-50/30">
                 <AgentAudioVisualizerGrid
                   state={state}
                   size="md"
@@ -651,12 +736,12 @@ function PracticeVoiceSession({
           </div>
         </section>
 
-        <aside className="flex min-h-[420px] flex-col rounded-2xl border border-slate-200 bg-white p-5 lg:col-span-4 lg:min-h-0">
+        <aside className="flex min-h-[420px] flex-col rounded-2xl border border-emerald-200/70 bg-gradient-to-b from-white to-emerald-50/20 p-5 lg:col-span-4 lg:min-h-0">
           <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Objective</p>
           <h2 className="mt-2 text-lg font-semibold text-slate-900">{activity.objective.title}</h2>
           <p className="mt-2 text-xs leading-6 text-slate-600">{activity.objective.description}</p>
 
-          <ScrollArea className="mt-4 h-[320px] rounded-xl border border-slate-200 bg-slate-50/60 p-3 lg:min-h-0 lg:flex-1 lg:h-auto">
+          <ScrollArea className="mt-4 h-[320px] rounded-xl border border-emerald-100 bg-emerald-50/25 p-3 lg:h-auto lg:min-h-0 lg:flex-1">
             <div className="space-y-4 pr-2 text-sm text-slate-700">
               <div className="rounded-lg border border-slate-200 bg-white p-3">
                 <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Success criteria</p>
@@ -676,7 +761,7 @@ function PracticeVoiceSession({
             </div>
           </ScrollArea>
 
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          <div className="mt-4 rounded-xl border border-amber-200/80 bg-amber-50/45 p-3 text-sm text-slate-700">
             <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Progress</p>
             <p className="mt-2">
               Status:{" "}
@@ -691,7 +776,7 @@ function PracticeVoiceSession({
               </span>
             </p>
             <p>
-              Your turns: <span className="font-semibold text-cyan-700">{rows.itaTurns}</span>
+              Your turns: <span className="font-semibold text-emerald-700">{rows.itaTurns}</span>
             </p>
             <p>
               Turn limit: <span className="font-semibold text-slate-900">{activity.maxTurns}</span>

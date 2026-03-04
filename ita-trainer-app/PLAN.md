@@ -1,3 +1,4 @@
+
 # ITA Interactional Competence Trainer
 
 This app helps international teaching assistants practice interactional competence through voice conversations with an AI student powered by LiveKit.
@@ -95,7 +96,6 @@ Goal: stabilize and clean up MVP UX.
 
 Scope:
 - Improve loading, error, and empty states.
-- Add user-facing fallback errors for service limits/outages (with contact links).
 - Final style pass and interaction polish.
 - Run lint/build checks and fix issues.
 
@@ -105,20 +105,6 @@ Note:
 Test checklist:
 1. Lint and build pass.
 2. Happy path and failure states are both understandable.
-
-### Deployment checklist (Vercel + LiveKit Cloud)
-
-1. Create a LiveKit Cloud project and copy `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`.
-2. Set OpenAI env vars (`OPENAI_API_KEY`, optional `OPENAI_DEBRIEF_MODEL`).
-3. Deploy web app (`ita-trainer-app`) to Vercel.
-4. Add matching environment variables in Vercel project settings.
-5. Deploy agent (`ita-trainer-app/agent`) with LiveKit CLI:
-   - `lk cloud auth`
-   - `lk project set-default "<project-name>"`
-   - `lk agent create`
-6. Confirm web + agent point to the same LiveKit project URL.
-7. Run smoke test: start session, speak, end session, confirm debrief.
-8. Run failure UX test: break a key or simulate limit; confirm user sees clear guidance and contact paths.
 
 ## Local Development
 

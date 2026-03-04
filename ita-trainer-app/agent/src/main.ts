@@ -18,6 +18,8 @@ type DispatchMetadata = {
   roomName?: string;
 };
 
+const OPENAI_REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime";
+
 function getActivityIdFromRoomName(roomName: string): string {
   const parts = roomName.split("-");
   const prefix = parts.at(0);
@@ -98,6 +100,7 @@ export default defineAgent({
 
     const session = new voice.AgentSession({
       llm: new openai.realtime.RealtimeModel({
+        model: OPENAI_REALTIME_MODEL,
         voice: "alloy",
         turnDetection: {
           type: "server_vad",

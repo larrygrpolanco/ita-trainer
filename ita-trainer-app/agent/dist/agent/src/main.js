@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "node:url";
 import { createStudentAgent, getOpeningLine } from "./agent";
 dotenv.config({ path: "../.env.local" });
+const OPENAI_REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime";
 function getActivityIdFromRoomName(roomName) {
     const parts = roomName.split("-");
     const prefix = parts.at(0);
@@ -70,6 +71,7 @@ export default defineAgent({
         const agent = createStudentAgent(resolved.activityId);
         const session = new voice.AgentSession({
             llm: new openai.realtime.RealtimeModel({
+                model: OPENAI_REALTIME_MODEL,
                 voice: "alloy",
                 turnDetection: {
                     type: "server_vad",
