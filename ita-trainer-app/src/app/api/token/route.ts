@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { AccessToken, AgentDispatchClient } from "livekit-server-sdk";
+import { getActivity } from "@/lib/activities";
 
 const API_KEY = process.env.LIVEKIT_API_KEY;
 const API_SECRET = process.env.LIVEKIT_API_SECRET;
@@ -38,6 +39,10 @@ export async function GET(request: Request) {
 
     if (!activityId) {
       return NextResponse.json({ error: "Missing activityId" }, { status: 400 });
+    }
+
+    if (!getActivity(activityId)) {
+      return NextResponse.json({ error: "Invalid activityId" }, { status: 400 });
     }
 
     const roomName = `ita-${activityId}-${crypto.randomUUID().slice(0, 8)}`;

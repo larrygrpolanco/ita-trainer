@@ -11,6 +11,7 @@ import {
   useTranscriptions,
   useVoiceAssistant,
 } from "@livekit/components-react";
+import { RoomEvent } from "livekit-client";
 import { Mic, MicOff, RotateCcw, Sparkles, Square } from "lucide-react";
 import { AgentAudioVisualizerGrid } from "@/components/agents-ui/agent-audio-visualizer-grid";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,16 @@ type TranscriptRow =
       turn: number;
       message: string;
     };
+
+type ObjectiveEvaluationMessage = {
+  type: "objective_evaluation";
+  activityId: string;
+  objectiveMet: boolean;
+  turnCount?: number;
+  maxTurns?: number;
+  reason?: string;
+  timestamp?: number;
+};
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object") {
@@ -124,6 +135,37 @@ function inferIdentity(record: Record<string, unknown>): string | null {
   }
 
   return getString(fromRecord, ["identity", "participantIdentity", "id"]);
+}
+
+function parseObjectiveEvaluation(payload: Uint8Array): ObjectiveEvaluationMessage | null {
+  try {
+    const decoded = new TextDecoder().decode(payload);
+    const parsed: unknown = JSON.parse(decoded);
+    const record = asRecord(parsed);
+    if (!record) {
+      return null;
+    }
+
+    const type = getString(record, ["type"]);
+    const activityId = getString(record, ["activityId"]);
+    const objectiveMet = getBoolean(record, ["objectiveMet"]);
+
+    if (type !== "objective_evaluation" || !activityId || objectiveMet === null) {
+      return null;
+    }
+
+    return {
+      type,
+      activityId,
+      objectiveMet,
+      turnCount: typeof record.turnCount === "number" ? record.turnCount : undefined,
+      maxTurns: typeof record.maxTurns === "number" ? record.maxTurns : undefined,
+      reason: getString(record, ["reason"]) ?? undefined,
+      timestamp: typeof record.timestamp === "number" ? record.timestamp : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export default function PracticePage() {
@@ -309,27 +351,17 @@ function PracticeVoiceSession({
   const [isResetting, setIsResetting] = useState(false);
   const [startHover, setStartHover] = useState(false);
   const [frozenEntries, setFrozenEntries] = useState<TranscriptEntry[]>([]);
+  const [objectiveMet, setObjectiveMet] = useState(false);
+  const [objectiveReason, setObjectiveReason] = useState("Objective not met yet.");
+  const [sessionEndReason, setSessionEndReason] = useState<"objective_met" | "max_turns" | null>(null);
   const transcriptBottomRef = useRef<HTMLDivElement | null>(null);
+  const endingSessionRef = useRef(false);
   const localIdentity = room.localParticipant?.identity ?? "";
   const micEnabled = Boolean(room.localParticipant?.isMicrophoneEnabled);
 
   const toggleMic = async () => {
     const nextEnabled = !micEnabled;
     await room.localParticipant.setMicrophoneEnabled(nextEnabled);
-  };
-
-  const stopSession = async () => {
-    setFrozenEntries(mergedEntries);
-    onStopSession();
-    await room.disconnect();
-  };
-
-  const resetSession = async () => {
-    setIsResetting(true);
-    await room.disconnect();
-    await onResetSession();
-    setFrozenEntries([]);
-    setIsResetting(false);
   };
 
   const liveEntries = useMemo(() => {
@@ -363,33 +395,39 @@ function PracticeVoiceSession({
       .filter((entry): entry is TranscriptEntry => entry !== null);
   }, [livekitTranscriptions, localIdentity]);
 
-  const mergedEntries = (() => {
-    const byId = new Map<string, TranscriptEntry>();
-
-    for (const entry of liveEntries) {
-      byId.set(entry.id, entry);
-    }
-
-    const merged = [...byId.values()].sort((a, b) => a.timestamp - b.timestamp);
-    const compacted: TranscriptEntry[] = [];
-
-    for (const entry of merged) {
-      const previous = compacted[compacted.length - 1];
-      const duplicateOfPrevious =
-        previous &&
-        previous.speaker === entry.speaker &&
-        previous.text === entry.text &&
-        Math.abs(previous.timestamp - entry.timestamp) < 1800;
-
-      if (!duplicateOfPrevious) {
-        compacted.push(entry);
+  const endSession = useCallback(
+    async (reason: "objective_met" | "max_turns" | null) => {
+      if (endingSessionRef.current) {
+        return;
       }
-    }
 
-    return compacted;
-  })();
+      endingSessionRef.current = true;
+      setSessionEndReason(reason);
+      setFrozenEntries(liveEntries);
+      onStopSession();
+      await room.disconnect();
+      endingSessionRef.current = false;
+    },
+    [liveEntries, onStopSession, room]
+  );
 
-  const effectiveEntries = sessionStarted ? mergedEntries : frozenEntries;
+  const stopSession = async () => {
+    await endSession(null);
+  };
+
+  const resetSession = async () => {
+    setIsResetting(true);
+    await room.disconnect();
+    await onResetSession();
+    setFrozenEntries([]);
+    setObjectiveMet(false);
+    setObjectiveReason("Objective not met yet.");
+    setSessionEndReason(null);
+    endingSessionRef.current = false;
+    setIsResetting(false);
+  };
+
+  const effectiveEntries = sessionStarted ? liveEntries : frozenEntries;
 
   const rows = useMemo(() => {
     const sortedTips = [...activity.coachTips].sort((a, b) => a.afterTurn - b.afterTurn);
@@ -423,8 +461,76 @@ function PracticeVoiceSession({
   }, [activity.coachTips, effectiveEntries]);
 
   useEffect(() => {
-    transcriptBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    transcriptBottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
   }, [rows.items.length]);
+
+  useEffect(() => {
+    const handleDataReceived = (
+      payload: Uint8Array,
+      _participant?: unknown,
+      _kind?: unknown,
+      topic?: string
+    ) => {
+      if (topic && topic !== "objective-evaluation") {
+        return;
+      }
+
+      const message = parseObjectiveEvaluation(payload);
+      if (!message || message.activityId !== activity.id) {
+        return;
+      }
+
+      setObjectiveMet(message.objectiveMet);
+      if (message.reason) {
+        setObjectiveReason(message.reason);
+      }
+    };
+
+    room.on(RoomEvent.DataReceived, handleDataReceived);
+
+    return () => {
+      room.off(RoomEvent.DataReceived, handleDataReceived);
+    };
+  }, [activity.id, room]);
+
+  useEffect(() => {
+    if (!sessionStarted) {
+      return;
+    }
+
+    if (objectiveMet) {
+      const timeoutId = window.setTimeout(() => {
+        void endSession("objective_met");
+      }, 0);
+
+      return () => {
+        window.clearTimeout(timeoutId);
+      };
+    }
+
+    if (rows.itaTurns >= activity.maxTurns) {
+      const timeoutId = window.setTimeout(() => {
+        void endSession("max_turns");
+      }, 0);
+
+      return () => {
+        window.clearTimeout(timeoutId);
+      };
+    }
+
+    return undefined;
+  }, [activity.maxTurns, endSession, objectiveMet, rows.itaTurns, sessionStarted]);
+
+  const objectiveStatus = sessionEndReason === "objective_met" || objectiveMet
+    ? "Objective met"
+    : sessionEndReason === "max_turns"
+      ? "Max turns reached"
+      : sessionStarted
+        ? "In progress"
+        : "Not started";
+
+  const assistantVisualizerColor =
+    state === "speaking" ? "#0284c7" : state === "thinking" ? "#0f766e" : "#64748b";
 
   return (
     <div className="flex flex-col gap-4 lg:h-full">
@@ -525,6 +631,9 @@ function PracticeVoiceSession({
                 onMouseLeave={() => setStartHover(false)}
                 onClick={() => {
                   setFrozenEntries([]);
+                  setObjectiveMet(false);
+                  setObjectiveReason("Objective not met yet.");
+                  setSessionEndReason(null);
                   onStartSession();
                 }}
                 disabled={hasStoppedSession}
@@ -550,7 +659,7 @@ function PracticeVoiceSession({
                   rowCount={8}
                   columnCount={8}
                   audioTrack={audioTrack}
-                  color="#0369a1"
+                  color={assistantVisualizerColor}
                   className="gap-2"
                 />
               </div>
@@ -571,6 +680,12 @@ function PracticeVoiceSession({
 
           <ScrollArea className="mt-4 h-[320px] rounded-xl border border-slate-200 bg-slate-50/60 p-3 lg:min-h-0 lg:flex-1 lg:h-auto">
             <div className="space-y-4 pr-2 text-sm text-slate-700">
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Objective status</p>
+                <p className="mt-2 font-semibold text-slate-900">{objectiveStatus}</p>
+                <p className="mt-1 text-slate-600">{objectiveReason}</p>
+              </div>
+
               <div className="rounded-lg border border-slate-200 bg-white p-3">
                 <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Success criteria</p>
                 <p className="mt-2 leading-6">{activity.objective.successCriteria}</p>
