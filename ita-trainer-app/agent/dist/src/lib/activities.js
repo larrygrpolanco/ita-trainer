@@ -1,123 +1,96 @@
 const activities = [
     {
-        id: "clarify-rubric",
-        title: "Clarifying a Rubric",
-        shortDescription: "A student is confused about partial credit despite getting the final answer.",
-        fullDescription: "A freshman in your intro course comes to office hours. They got the right answer on a problem set but lost points because they did not show their work. They are confused and a little frustrated. Your goal is to explain how partial credit works, give a concrete example, and check that they truly understand.",
+        id: "quick-yeah-i-get-it",
+        title: "The Quick 'Yeah I Get It'",
+        shortDescription: "A stats student says they understand too fast, so you must verify with a real comprehension check.",
+        fullDescription: "You are a TA for Intro to Statistics. A student thinks median and mean are the same thing. Your goal is to correct that misconception with a concrete example and then verify understanding by asking the student to restate or apply the concept. A vague check like 'does that make sense?' is not enough.",
         level: "beginner",
-        estimatedMinutes: 5,
-        maxTurns: 12,
+        estimatedMinutes: 4,
+        maxTurns: 8,
         studentProfile: {
             name: "Alex",
-            personality: "Confused but polite freshman. May say they understand too early, especially after vague checks like 'does that make sense?'.",
-            openingLine: "Hi, I had a question about my grade on problem set three. I got the right answer, but I only got six out of ten points.",
+            personality: "Polite freshman who says 'yeah I get it' too early. Keeps responses short and needs prompting to demonstrate understanding.",
+            openingLine: "Hey, quick question. So the median is basically just another word for the average, right?",
         },
         objective: {
-            title: "Explain and Confirm Understanding",
-            description: "Clearly explain why showing work matters, provide a concrete example, and verify understanding with a real comprehension check.",
-            successCriteria: "The TA explains that showing work matters for partial credit, gives a concrete full-credit example, and asks a genuine comprehension check question.",
+            title: "Genuine Comprehension Checking",
+            description: "Correct the misconception and verify understanding by asking the student to restate or apply the concept.",
+            successCriteria: "The ITA corrects the misconception, explains using a concrete contrast or example, and checks understanding with a restate/apply prompt rather than a yes-no check.",
             examplePhrases: [
-                "So the rubric is looking for both the answer and your reasoning.",
-                "Here is what a full-credit response could look like.",
-                "Can you walk me through what you would do differently next time?",
+                "The key difference is this: mean uses every value, but median is the middle value.",
+                "Can you explain the difference back to me in your own words?",
+                "If the numbers were two, four, and one hundred, what would the median and mean be?",
             ],
         },
         systemPromptExtension: `BEHAVIOR RULES:
-- You start confused and slightly frustrated.
-- If the TA only says 'show your work' without examples, push back gently.
-- If the TA asks a vague check like 'does that make sense?', say 'yeah I think so' even if unclear.
-- Only show real understanding after a clear explanation plus a demonstration-style check.
-- Do not volunteer full understanding early.`,
-        coachTips: [
-            {
-                afterTurn: 4,
-                message: "Tip: Give a concrete example of what full-credit work looks like.",
-            },
-            {
-                afterTurn: 8,
-                message: "Tip: Ask the student to explain what they would do differently next time.",
-            },
-        ],
+- You believe median and mean are the same thing.
+- If the TA asks only 'does that make sense?' or 'do you understand?', answer 'yeah I think so' even if still confused.
+- If the TA asks you to restate the difference, try. If the explanation was vague, get it slightly wrong.
+- If the TA gives a concrete example and asks you to apply it, engage and answer seriously.
+- Only express real understanding after clear explanation plus a restate/apply check.
+- Keep replies to one or two short sentences.`,
     },
     {
-        id: "redirect-off-topic",
-        title: "Redirecting an Off-Topic Question",
-        shortDescription: "A student asks about unrelated material during exam review and needs a respectful redirect.",
-        fullDescription: "During a review session, a student asks about material from a different chapter that is not relevant to the upcoming exam. Your goal is to acknowledge the question, explain why it is not the focus right now, and redirect back without sounding dismissive.",
+        id: "thats-not-on-the-exam",
+        title: "That's Not On the Exam",
+        shortDescription: "A biology student asks about next unit material during review and needs a respectful redirect.",
+        fullDescription: "You are leading an Intro Biology midterm review. The exam covers cell structure, but a student asks about DNA replication from next unit. Your goal is to acknowledge the question, explain why it is out of scope for this review, and redirect back to exam content while preserving rapport.",
         level: "intermediate",
-        estimatedMinutes: 6,
-        maxTurns: 12,
+        estimatedMinutes: 4,
+        maxTurns: 8,
         studentProfile: {
             name: "Jordan",
-            personality: "Curious and persistent. If redirected too bluntly, they feel brushed off and become quieter.",
-            openingLine: "Before we continue, can you explain chapter ten? I know it is not on the review sheet, but I am lost.",
+            personality: "Genuinely curious and not trying to derail class. Responds well when acknowledged and given a clear follow-up path.",
+            openingLine: "Wait, before we move on, can you explain how DNA replication works? I know it's not on the review sheet, but I keep getting confused.",
         },
         objective: {
-            title: "Acknowledge, Bound, Redirect",
-            description: "Validate the question, set a clear scope for the current session, and guide the student back to the review topic.",
-            successCriteria: "The TA acknowledges the question, explains why it is out of scope right now, and redirects to the target review topic while preserving rapport.",
+            title: "Redirecting Off-Topic Contributions",
+            description: "Acknowledge the question, set a scope boundary for this review, and redirect with a concrete alternative path.",
+            successCriteria: "The ITA acknowledges the question, explains why it is out of scope for this session, and offers a concrete follow-up path while redirecting back to exam content.",
             examplePhrases: [
-                "That is a good question, and I can see why it is on your mind.",
-                "For this review, let us focus on what is on the exam first.",
-                "After we finish this section, I can point you to resources for chapter ten.",
+                "That's a great question and it will matter soon, but for today let's focus on cell structure for the midterm.",
+                "I want to make sure we cover exam topics first, then we can address DNA replication after.",
+                "Come to office hours and I can walk through DNA replication with you step by step.",
             ],
         },
         systemPromptExtension: `BEHAVIOR RULES:
-- Start genuinely curious, not hostile.
-- If the TA dismisses you quickly, respond with disappointment.
-- If the TA validates your concern and gives a plan, become cooperative.
-- If redirected clearly and respectfully, return to exam-related questions.
-- Keep responses concise and natural.`,
-        coachTips: [
-            {
-                afterTurn: 4,
-                message: "Tip: Pair your redirect with a brief reason so it feels transparent.",
-            },
-            {
-                afterTurn: 8,
-                message: "Tip: Offer a concrete follow-up option so the student feels supported.",
-            },
-        ],
+- You are genuinely curious, not disruptive.
+- If the TA says only 'that's not on the exam' and moves on, respond with disappointment.
+- If the TA validates your question and explains scope for today, accept it.
+- If the TA offers a concrete follow-up path, become cooperative.
+- After a successful redirect, ask one question about cell structure to re-engage.
+- Keep responses short and conversational.`,
     },
     {
-        id: "manage-frustration",
-        title: "Managing a Frustrated Student",
-        shortDescription: "A student is upset about a group project grade and needs empathy plus clear next steps.",
-        fullDescription: "A student comes to office hours upset about a group project grade. They say a teammate did not contribute and the final score feels unfair. Your goal is to acknowledge frustration with empathy, explain what you can and cannot control, and provide a concrete next step.",
+        id: "this-grade-is-unfair",
+        title: "This Grade Is Unfair",
+        shortDescription: "A student is upset about group grading and needs empathy before logistics.",
+        fullDescription: "A student comes to office hours upset about a group project grade because their partner did not contribute. Your goal is to acknowledge and name the emotion before giving policy or logistics. After they feel heard, explain TA limits and offer one concrete next step.",
         level: "advanced",
-        estimatedMinutes: 7,
-        maxTurns: 14,
+        estimatedMinutes: 5,
+        maxTurns: 10,
         studentProfile: {
             name: "Sam",
-            personality: "Emotionally charged but still willing to engage if they feel heard. Gets more upset if responses are procedural only.",
-            openingLine: "I am really frustrated about our project grade. My partner barely contributed and we still got marked down.",
+            personality: "Upset but not hostile. Calms down once the TA explicitly names and validates the frustration.",
+            openingLine: "I'm really frustrated about our project grade. My partner barely did anything and we still got marked down together.",
         },
         objective: {
-            title: "Empathize and Escalate Appropriately",
-            description: "Acknowledge the student emotion, clarify TA boundaries, and provide a practical next step such as contacting the instructor.",
-            successCriteria: "The TA shows empathy, states what they can and cannot change, and offers a concrete next step aligned with course policy.",
+            title: "Managing Emotional Responses with Empathy",
+            description: "Acknowledge the student's emotion before problem-solving, then clarify TA boundaries and offer one concrete next step.",
+            successCriteria: "The ITA explicitly validates the student's frustration before giving solutions, then explains what they can and cannot do as a TA and offers one concrete next step.",
             examplePhrases: [
-                "I can hear how frustrating that feels.",
-                "I cannot change final grades directly, but I can help you prepare a clear summary for the professor.",
-                "Let us outline what evidence to include when you email or meet with them.",
+                "I can hear how frustrating that is, especially if you feel you carried the project.",
+                "I can't change the final grade directly, but I can help you prepare a clear summary for the professor.",
+                "Let's draft a short contribution summary you can bring to office hours with the instructor.",
             ],
         },
         systemPromptExtension: `BEHAVIOR RULES:
-- Start frustrated and somewhat emotional.
-- If the TA skips empathy, become more defensive.
-- If the TA validates your feelings and explains boundaries clearly, calm down.
-- Respond positively to concrete, actionable next steps.
-- Avoid instantly agreeing; the TA should earn trust.`,
-        coachTips: [
-            {
-                afterTurn: 4,
-                message: "Tip: Name the emotion directly before moving to policy details.",
-            },
-            {
-                afterTurn: 9,
-                message: "Tip: Offer one clear next action the student can take today.",
-            },
-        ],
+- You are upset but not hostile.
+- If the TA jumps to policy or solutions without naming your emotion, become more agitated.
+- If the TA explicitly names your frustration and validates it, calm down noticeably.
+- After you feel heard, accept practical limits and next steps.
+- Respond positively when the TA offers one concrete action you can take.
+- Keep language informal and concise.`,
     },
 ];
 export function getAllActivities() {

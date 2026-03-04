@@ -11,8 +11,7 @@ import {
   useTranscriptions,
   useVoiceAssistant,
 } from "@livekit/components-react";
-import { RoomEvent } from "livekit-client";
-import { Mic, MicOff, RotateCcw, Sparkles, Square } from "lucide-react";
+import { Mic, MicOff, RotateCcw, Square } from "lucide-react";
 import { AgentAudioVisualizerGrid } from "@/components/agents-ui/agent-audio-visualizer-grid";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -35,27 +34,10 @@ type TranscriptEntry = {
   isFinal: boolean;
 };
 
-type TranscriptRow =
-  | {
-      kind: "line";
-      key: string;
-      entry: TranscriptEntry;
-    }
-  | {
-      kind: "tip";
-      key: string;
-      turn: number;
-      message: string;
-    };
-
-type ObjectiveEvaluationMessage = {
-  type: "objective_evaluation";
-  activityId: string;
-  objectiveMet: boolean;
-  turnCount?: number;
-  maxTurns?: number;
-  reason?: string;
-  timestamp?: number;
+type DebriefResponse = {
+  didWell: string;
+  nextStep: string;
+  skillStatus: "yes" | "partially" | "not yet";
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -135,37 +117,6 @@ function inferIdentity(record: Record<string, unknown>): string | null {
   }
 
   return getString(fromRecord, ["identity", "participantIdentity", "id"]);
-}
-
-function parseObjectiveEvaluation(payload: Uint8Array): ObjectiveEvaluationMessage | null {
-  try {
-    const decoded = new TextDecoder().decode(payload);
-    const parsed: unknown = JSON.parse(decoded);
-    const record = asRecord(parsed);
-    if (!record) {
-      return null;
-    }
-
-    const type = getString(record, ["type"]);
-    const activityId = getString(record, ["activityId"]);
-    const objectiveMet = getBoolean(record, ["objectiveMet"]);
-
-    if (type !== "objective_evaluation" || !activityId || objectiveMet === null) {
-      return null;
-    }
-
-    return {
-      type,
-      activityId,
-      objectiveMet,
-      turnCount: typeof record.turnCount === "number" ? record.turnCount : undefined,
-      maxTurns: typeof record.maxTurns === "number" ? record.maxTurns : undefined,
-      reason: getString(record, ["reason"]) ?? undefined,
-      timestamp: typeof record.timestamp === "number" ? record.timestamp : undefined,
-    };
-  } catch {
-    return null;
-  }
 }
 
 export default function PracticePage() {
@@ -351,9 +302,10 @@ function PracticeVoiceSession({
   const [isResetting, setIsResetting] = useState(false);
   const [startHover, setStartHover] = useState(false);
   const [frozenEntries, setFrozenEntries] = useState<TranscriptEntry[]>([]);
-  const [objectiveMet, setObjectiveMet] = useState(false);
-  const [objectiveReason, setObjectiveReason] = useState("Objective not met yet.");
-  const [sessionEndReason, setSessionEndReason] = useState<"objective_met" | "max_turns" | null>(null);
+  const [sessionEndReason, setSessionEndReason] = useState<"manual" | "max_turns" | null>(null);
+  const [debrief, setDebrief] = useState<DebriefResponse | null>(null);
+  const [isDebriefLoading, setIsDebriefLoading] = useState(false);
+  const [debriefError, setDebriefError] = useState<string | null>(null);
   const transcriptBottomRef = useRef<HTMLDivElement | null>(null);
   const endingSessionRef = useRef(false);
   const localIdentity = room.localParticipant?.identity ?? "";
@@ -395,8 +347,65 @@ function PracticeVoiceSession({
       .filter((entry): entry is TranscriptEntry => entry !== null);
   }, [livekitTranscriptions, localIdentity]);
 
+  const generateDebrief = useCallback(
+    async (entries: TranscriptEntry[]) => {
+      const transcript = entries
+        .filter((entry) => entry.isFinal && entry.text.trim().length > 0)
+        .map((entry) => ({
+          speaker: entry.speaker === "user" ? "ita" : "student",
+          text: entry.text,
+        }));
+
+      if (transcript.length < 2) {
+        setDebrief(null);
+        setDebriefError("Not enough transcript yet for coaching feedback.");
+        return;
+      }
+
+      setIsDebriefLoading(true);
+      setDebrief(null);
+      setDebriefError(null);
+
+      try {
+        const response = await fetch("/api/debrief", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            activityId: activity.id,
+            transcript,
+          }),
+        });
+
+        const data = (await response.json()) as {
+          didWell?: string;
+          nextStep?: string;
+          skillStatus?: DebriefResponse["skillStatus"];
+          error?: string;
+        };
+
+        if (!response.ok || !data.didWell || !data.nextStep || !data.skillStatus) {
+          throw new Error(data.error ?? "Unable to generate coaching feedback right now.");
+        }
+
+        setDebrief({
+          didWell: data.didWell,
+          nextStep: data.nextStep,
+          skillStatus: data.skillStatus,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to generate coaching feedback right now.";
+        setDebriefError(message);
+      } finally {
+        setIsDebriefLoading(false);
+      }
+    },
+    [activity.id]
+  );
+
   const endSession = useCallback(
-    async (reason: "objective_met" | "max_turns" | null) => {
+    async (reason: "manual" | "max_turns" | null) => {
       if (endingSessionRef.current) {
         return;
       }
@@ -406,13 +415,14 @@ function PracticeVoiceSession({
       setFrozenEntries(liveEntries);
       onStopSession();
       await room.disconnect();
+      await generateDebrief(liveEntries);
       endingSessionRef.current = false;
     },
-    [liveEntries, onStopSession, room]
+    [generateDebrief, liveEntries, onStopSession, room]
   );
 
   const stopSession = async () => {
-    await endSession(null);
+    await endSession("manual");
   };
 
   const resetSession = async () => {
@@ -420,9 +430,10 @@ function PracticeVoiceSession({
     await room.disconnect();
     await onResetSession();
     setFrozenEntries([]);
-    setObjectiveMet(false);
-    setObjectiveReason("Objective not met yet.");
     setSessionEndReason(null);
+    setDebrief(null);
+    setDebriefError(null);
+    setIsDebriefLoading(false);
     endingSessionRef.current = false;
     setIsResetting(false);
   };
@@ -430,82 +441,20 @@ function PracticeVoiceSession({
   const effectiveEntries = sessionStarted ? liveEntries : frozenEntries;
 
   const rows = useMemo(() => {
-    const sortedTips = [...activity.coachTips].sort((a, b) => a.afterTurn - b.afterTurn);
-    const output: TranscriptRow[] = [];
-    const emittedTipTurns = new Set<number>();
-    let itaTurns = 0;
+    const itaTurns = effectiveEntries.reduce((count, entry) => {
+      return entry.speaker === "user" && entry.isFinal ? count + 1 : count;
+    }, 0);
 
-    for (const entry of effectiveEntries) {
-      output.push({ kind: "line", key: `line-${entry.id}`, entry });
-
-      if (entry.speaker === "user" && entry.isFinal) {
-        itaTurns += 1;
-
-        for (const tip of sortedTips) {
-          if (emittedTipTurns.has(tip.afterTurn) || itaTurns < tip.afterTurn) {
-            continue;
-          }
-
-          emittedTipTurns.add(tip.afterTurn);
-          output.push({
-            kind: "tip",
-            key: `tip-${tip.afterTurn}`,
-            turn: tip.afterTurn,
-            message: tip.message,
-          });
-        }
-      }
-    }
-
-    return { items: output, itaTurns };
-  }, [activity.coachTips, effectiveEntries]);
+    return { items: effectiveEntries, itaTurns };
+  }, [effectiveEntries]);
 
   useEffect(() => {
     transcriptBottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
   }, [rows.items.length]);
 
   useEffect(() => {
-    const handleDataReceived = (
-      payload: Uint8Array,
-      _participant?: unknown,
-      _kind?: unknown,
-      topic?: string
-    ) => {
-      if (topic && topic !== "objective-evaluation") {
-        return;
-      }
-
-      const message = parseObjectiveEvaluation(payload);
-      if (!message || message.activityId !== activity.id) {
-        return;
-      }
-
-      setObjectiveMet(message.objectiveMet);
-      if (message.reason) {
-        setObjectiveReason(message.reason);
-      }
-    };
-
-    room.on(RoomEvent.DataReceived, handleDataReceived);
-
-    return () => {
-      room.off(RoomEvent.DataReceived, handleDataReceived);
-    };
-  }, [activity.id, room]);
-
-  useEffect(() => {
     if (!sessionStarted) {
       return;
-    }
-
-    if (objectiveMet) {
-      const timeoutId = window.setTimeout(() => {
-        void endSession("objective_met");
-      }, 0);
-
-      return () => {
-        window.clearTimeout(timeoutId);
-      };
     }
 
     if (rows.itaTurns >= activity.maxTurns) {
@@ -519,15 +468,7 @@ function PracticeVoiceSession({
     }
 
     return undefined;
-  }, [activity.maxTurns, endSession, objectiveMet, rows.itaTurns, sessionStarted]);
-
-  const objectiveStatus = sessionEndReason === "objective_met" || objectiveMet
-    ? "Objective met"
-    : sessionEndReason === "max_turns"
-      ? "Max turns reached"
-      : sessionStarted
-        ? "In progress"
-        : "Not started";
+  }, [activity.maxTurns, endSession, rows.itaTurns, sessionStarted]);
 
   const assistantVisualizerColor =
     state === "speaking" ? "#0284c7" : state === "thinking" ? "#0f766e" : "#64748b";
@@ -566,7 +507,7 @@ function PracticeVoiceSession({
         <section className="flex min-h-[420px] min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-5 lg:col-span-5 lg:min-h-0">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Live transcript</p>
-            <p className="text-xs text-slate-500">Coach tips appear after your turns</p>
+            <p className="text-xs text-slate-500">Updates in real time</p>
           </div>
 
           <ScrollArea className="h-[320px] rounded-xl border border-slate-200 bg-slate-50/60 p-3 lg:min-h-0 lg:flex-1 lg:h-auto">
@@ -579,34 +520,19 @@ function PracticeVoiceSession({
                 </p>
               ) : (
                 rows.items.map((item) => {
-                  if (item.kind === "tip") {
-                    return (
-                      <div
-                        key={item.key}
-                        className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
-                      >
-                        <p className="flex items-center gap-2 font-medium">
-                          <Sparkles className="h-4 w-4" />
-                          Coach tip after turn {item.turn}
-                        </p>
-                        <p className="mt-1 text-amber-800">{item.message}</p>
-                      </div>
-                    );
-                  }
-
                   return (
                     <div
-                      key={item.key}
+                      key={item.id}
                       className={
-                        item.entry.speaker === "user"
+                        item.speaker === "user"
                           ? "ml-auto max-w-[92%] rounded-2xl border border-cyan-200 bg-cyan-100/80 px-4 py-3 text-sm text-slate-900"
                           : "mr-auto max-w-[92%] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
                       }
                     >
                       <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        {item.entry.speaker === "user" ? "You" : "Student"}
+                        {item.speaker === "user" ? "You" : "Student"}
                       </p>
-                      <p>{item.entry.text}</p>
+                      <p>{item.text}</p>
                     </div>
                   );
                 })
@@ -631,9 +557,10 @@ function PracticeVoiceSession({
                 onMouseLeave={() => setStartHover(false)}
                 onClick={() => {
                   setFrozenEntries([]);
-                  setObjectiveMet(false);
-                  setObjectiveReason("Objective not met yet.");
                   setSessionEndReason(null);
+                  setDebrief(null);
+                  setDebriefError(null);
+                  setIsDebriefLoading(false);
                   onStartSession();
                 }}
                 disabled={hasStoppedSession}
@@ -681,9 +608,16 @@ function PracticeVoiceSession({
           <ScrollArea className="mt-4 h-[320px] rounded-xl border border-slate-200 bg-slate-50/60 p-3 lg:min-h-0 lg:flex-1 lg:h-auto">
             <div className="space-y-4 pr-2 text-sm text-slate-700">
               <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Objective status</p>
-                <p className="mt-2 font-semibold text-slate-900">{objectiveStatus}</p>
-                <p className="mt-1 text-slate-600">{objectiveReason}</p>
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Session status</p>
+                <p className="mt-2 font-semibold text-slate-900">
+                  {sessionStarted
+                    ? "In progress"
+                    : sessionEndReason === "max_turns"
+                      ? "Max turns reached"
+                      : sessionEndReason === "manual"
+                        ? "Ended by you"
+                        : "Not started"}
+                </p>
               </div>
 
               <div className="rounded-lg border border-slate-200 bg-white p-3">
@@ -699,6 +633,32 @@ function PracticeVoiceSession({
                 <p>
                   Max turns: <span className="font-semibold text-slate-900">{activity.maxTurns}</span>
                 </p>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Post-session coaching</p>
+                {sessionStarted ? (
+                  <p className="mt-2 text-slate-600">Feedback appears after the session ends.</p>
+                ) : isDebriefLoading ? (
+                  <p className="mt-2 text-slate-600">Generating feedback...</p>
+                ) : debriefError ? (
+                  <p className="mt-2 text-red-700">{debriefError}</p>
+                ) : debrief ? (
+                  <div className="mt-2 space-y-2">
+                    <p>
+                      <span className="font-semibold text-slate-900">Skill status:</span>{" "}
+                      <span className="capitalize">{debrief.skillStatus}</span>
+                    </p>
+                    <p>
+                      <span className="font-semibold text-slate-900">You did well:</span> {debrief.didWell}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-slate-900">Next step:</span> {debrief.nextStep}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-slate-600">Complete one round to receive coaching feedback.</p>
+                )}
               </div>
 
               <div className="rounded-lg border border-slate-200 bg-white p-3">

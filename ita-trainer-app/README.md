@@ -48,14 +48,14 @@ Scope:
 - Build desktop three-column layout (audio, transcript, objective panel).
 - Add responsive mobile layout.
 - Show live transcript in center panel.
-- Add coach tips at configured turn counts.
+- Show objective guidance and example phrases during practice.
 
 Test checklist:
 1. Desktop: all three panels visible and usable.
 2. Mobile: panels stack cleanly and remain usable.
 3. Transcript updates live while speaking.
 
-### Phase 4: Objective evaluation + session state
+### Phase 4: Objective evaluation + session state (superseded)
 
 Goal: objective completion status updates during conversation.
 
@@ -68,6 +68,9 @@ Scope:
 Test checklist:
 1. Objective status updates in real time.
 2. Session ends correctly for completion and max-turn limits.
+
+Status:
+- This approach was replaced in Phase 4.5 with post-session debriefing.
 
 ### Phase 4.5: Pedagogy + behavior simplification (new)
 

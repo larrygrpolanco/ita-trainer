@@ -68,7 +68,12 @@ export async function GET(request: Request) {
       API_SECRET
     );
 
-    const dispatch = await dispatchClient.createDispatch(roomName, "ita-student-agent");
+    const dispatch = await dispatchClient.createDispatch(roomName, "ita-student-agent", {
+      metadata: JSON.stringify({
+        activityId,
+        roomName,
+      }),
+    });
     console.info("Agent dispatch created", {
       roomName,
       dispatchId: dispatch.id,

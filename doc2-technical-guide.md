@@ -16,7 +16,7 @@ This document contains everything a coding agent needs to build the project corr
 | AI Model | OpenAI Realtime API via @livekit/agents-plugin-openai | Speech-to-speech, simpler setup |
 | Frontend LiveKit SDK | livekit-client + @livekit/components-react | Room connection, audio, transcripts |
 | UI | Tailwind CSS + shadcn/ui | Pre-installed before coding agent runs |
-| State | Zustand | Turn tracking, objective status |
+| State | Zustand (optional) | Session UI state; avoid over-coupling to evaluation logic |
 | Package Manager | pnpm | Required by LiveKit Node.js agent SDK |
 
 ---
@@ -93,6 +93,26 @@ For production, you deploy the agent to LiveKit Cloud using lk agent create.
 
 ---
 
+## LiveKit Reliability Practices (Keep These Stable)
+
+These are durable implementation practices that should stay true even as features evolve:
+
+1. **Pass context through dispatch metadata.** Room-name parsing is useful as a fallback, but core session context (activity ID, mode, user info) should be sent in `createDispatch(..., { metadata })` and read from `ctx.job.metadata`.
+
+2. **Avoid duplicate connection paths.** If using `voice.AgentSession.start({ room: ctx.room })`, let it handle room connection. Do not add extra connection calls unless there is a clear lifecycle reason.
+
+3. **Gate opening speech on participant presence.** Before sending a scripted opener, confirm a remote participant is present. This prevents "agent speaking to an empty room" behavior.
+
+4. **Design for interruption.** Realtime speech will be interrupted. Agent prompts and turn logic must tolerate partial user utterances and resumed turns without role drift.
+
+5. **Use explicit dispatch intentionally.** If you set `agentName` in `ServerOptions`, dispatch becomes explicit. Ensure token/API layer always creates dispatch for the same `agentName`.
+
+6. **Keep logs structured and traceable.** Log `jobId`, `roomName`, `activityId`, and context source (metadata vs fallback) at session start. This is the fastest way to debug routing issues.
+
+7. **Treat realtime roleplay and evaluation as separate concerns.** Keep the realtime agent focused on conversation quality. Move coaching/evaluation to a separate post-session path when possible.
+
+---
+
 ## Implementation Details
 
 ### 1. Environment Variables (.env.local)
@@ -110,7 +130,7 @@ NEXT_PUBLIC_LIVEKIT_URL=wss://your-project.livekit.cloud
 
 ### 2. Token Generation (src/app/api/token/route.ts)
 
-The frontend requests a token to join a LiveKit room. The token includes the room name which encodes the activity ID so the agent knows which persona to load.
+The frontend requests a token to join a LiveKit room. The room name can encode activity ID for readability and fallback parsing, but reliable routing should use explicit dispatch metadata.
 
 ```typescript
 import { AccessToken } from "livekit-server-sdk";
@@ -247,8 +267,6 @@ export default defineAgent({
       room: ctx.room,
     });
 
-    await ctx.connect();
-
     // Deliver the opening line
     const { getActivity } = await import('../../src/lib/activities');
     const activity = getActivity(activityId);
@@ -268,6 +286,10 @@ cli.runApp(
   })
 );
 ```
+
+Implementation note:
+- Prefer `ctx.job.metadata` for runtime context and use room-name parsing only as a fallback.
+- With `AgentSession.start(...)`, avoid adding redundant room connect calls.
 
 #### agent/package.json
 
@@ -355,9 +377,9 @@ export default function PracticePage({ params }: { params: { activityId: string 
 
 LiveKit provides transcription through the agent. The @livekit/components-react library includes hooks for transcription segments. Use these to render the chat-style transcript in the center panel.
 
-### 6. Data Channel (Objective Evaluation)
+### 6. Data Channel (Optional)
 
-The agent can send data messages to the frontend through LiveKit data channel. Use this for evaluate_objective — when the agent determines criteria are met, it sends a message the frontend picks up to update the objective status panel.
+The agent can send data messages to the frontend through LiveKit data channel for optional UI events (status sync, diagnostics, lightweight signaling).
 
 In the agent use ctx.room.localParticipant.publishData(). In the frontend listen with the room dataReceived event or useDataChannel hook.
 
@@ -417,7 +439,7 @@ If this phase does not work, stop and fix it before doing anything else.
 
 Steps:
 1. Create src/lib/activities.ts with the Activity interface and 3 activities.
-2. Update agent to parse activityId from room name and load matching persona.
+2. Pass `activityId` through dispatch metadata; keep room-name parsing as fallback only.
 3. Build the home page with activity cards.
 4. Milestone: Different activities produce different student personas.
 
@@ -427,18 +449,16 @@ Steps:
 1. Build the three-column practice layout.
 2. Add transcript display using LiveKit transcription hooks.
 3. Add the objective panel with criteria and example phrases.
-4. Wire up Zustand store for turn tracking.
-5. Add coach tips inline in transcript based on turn count.
-6. Milestone: Full practice UI with live transcript, objective panel, coach tips.
+4. Add session controls (start, stop, reset) and max-turn ending logic.
+5. Milestone: Full practice UI with live transcript and clear objective guidance.
 
-### Phase 4/5: Evaluation + Polish
+### Phase 4/5: Debrief + Polish
 
 Steps:
-1. Add evaluate_objective tool to agent (data channel message when criteria met).
-2. Wire frontend to listen for evaluation and update objective status.
-3. Polish home page, add activity detail view.
-4. Style with dark theme.
-5. Add end-session logic.
+1. Keep realtime agent focused on roleplay quality and stable turn-taking.
+2. Add post-session transcript debrief path (separate from realtime agent behavior).
+3. Polish home page, activity detail view, and failure states.
+4. Finalize visual style and interaction quality.
 6. Milestone: Complete working MVP.
 
 ---
@@ -457,9 +477,13 @@ pnpm --filter ita-trainer-agent dev
 
 5. Run pnpm download-files in agent directory before first run to download VAD model files.
 
-6. Room name encodes activity ID. Pattern: ita-{activityId}-{randomHash}. Agent extracts by removing prefix and suffix.
+6. Room name can encode activity ID (`ita-{activityId}-{randomHash}`), but parsing should be fallback only.
 
-7. Set generous silence duration (1200ms) for turn detection. ITAs pause mid-sentence more than native speakers.
+7. Primary runtime context should come from explicit dispatch metadata.
+
+8. Set generous silence duration (1200ms) for turn detection. ITAs pause mid-sentence more than native speakers.
+
+9. If behavior looks inconsistent, verify only one active worker set is handling the configured `agentName`.
 
 ---
 
