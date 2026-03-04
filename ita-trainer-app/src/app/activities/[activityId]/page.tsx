@@ -17,22 +17,24 @@ export default async function ActivityDetailPage({
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-100 via-slate-50 to-white text-slate-900">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#e2e8f0_0%,_#f8fafc_42%,_#ffffff_100%)] text-slate-900">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-12 lg:px-10">
         <Link href="/" className="text-sm font-medium text-slate-600 hover:text-slate-900">
           {"<-"} Back to activities
         </Link>
 
-        <header className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-            {activity.level} · {activity.estimatedMinutes} minutes
-          </p>
-          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">{activity.title}</h1>
-          <p className="max-w-4xl text-base leading-7 text-slate-700">{activity.fullDescription}</p>
+        <header className="rounded-3xl border border-slate-200/80 bg-white/90 p-7 shadow-sm md:p-9">
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              {activity.level} · {activity.estimatedMinutes} minutes
+            </p>
+            <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">{activity.title}</h1>
+            <p className="max-w-4xl text-base leading-7 text-slate-700">{activity.fullDescription}</p>
+          </div>
         </header>
 
         <section className="grid gap-4 md:grid-cols-2">
-          <Card className="border-slate-200/80 bg-white/95">
+          <Card className="border-slate-200/80 bg-white/95 shadow-sm">
             <CardHeader>
               <CardTitle>Objective</CardTitle>
             </CardHeader>
@@ -46,7 +48,7 @@ export default async function ActivityDetailPage({
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200/80 bg-white/95">
+          <Card className="border-slate-200/80 bg-white/95 shadow-sm">
             <CardHeader>
               <CardTitle>Example Phrases</CardTitle>
             </CardHeader>
@@ -63,7 +65,7 @@ export default async function ActivityDetailPage({
         </section>
 
         <div className="flex flex-wrap gap-3">
-          <Button asChild>
+          <Button asChild className="min-w-40">
             <Link href={`/practice/${activity.id}`}>Start Practice</Link>
           </Button>
           <Button asChild variant="outline">

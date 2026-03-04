@@ -40,6 +40,34 @@ type DebriefResponse = {
   skillStatus: "yes" | "partially" | "not yet";
 };
 
+function collapseFinalTranscript(entries: TranscriptEntry[]): TranscriptEntry[] {
+  const collapsed: TranscriptEntry[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isFinal || entry.text.trim().length === 0) {
+      continue;
+    }
+
+    const last = collapsed.at(-1);
+    if (last && last.speaker === entry.speaker) {
+      last.text = `${last.text} ${entry.text}`.trim();
+      last.timestamp = entry.timestamp;
+      continue;
+    }
+
+    collapsed.push({ ...entry });
+  }
+
+  return collapsed;
+}
+
+function countItaTurns(entries: TranscriptEntry[]): number {
+  const collapsed = collapseFinalTranscript(entries);
+  return collapsed.reduce((count, entry) => {
+    return entry.speaker === "user" ? count + 1 : count;
+  }, 0);
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -203,7 +231,7 @@ export default function PracticePage() {
   if (activityId && !activity) {
     return (
       <main className="min-h-screen bg-slate-50 px-6 py-10 text-slate-900">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-8">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-4">
           <Link href="/" className="text-sm text-slate-500 hover:text-slate-900">
             {"<-"} Back to activities
           </Link>
@@ -218,21 +246,17 @@ export default function PracticePage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-100 via-slate-50 to-white text-slate-900">
-      <header className="border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <Link href="/" className="text-sm text-slate-500 hover:text-slate-900">
-              {"<-"} Back to activities
-            </Link>
-            <h1 className="text-lg font-semibold tracking-tight md:text-xl">
-              Practice: {activity?.title ?? activityId}
-            </h1>
-          </div>
-          <p className="text-sm text-slate-500">{statusText}</p>
+      <header className="px-4 pt-4 md:pt-6">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-4">
+          <Link href="/" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+            {"<-"} Back to activities
+          </Link>
+          <p className="max-w-[58%] truncate text-sm font-medium text-slate-700">{activity?.title ?? activityId}</p>
+          <p className="hidden text-xs text-slate-500 md:block">{statusText}</p>
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-7xl p-3 md:p-6 lg:h-[calc(100vh-81px)]">
+      <div className="mx-auto w-full max-w-7xl p-4 md:p-6 lg:h-[calc(100vh-81px)]">
         {!connectionDetails && !error && (
           <div className="flex min-h-[55vh] items-center justify-center rounded-2xl border border-slate-200 bg-white p-6 text-slate-500 lg:h-full lg:min-h-0">
             Connecting to LiveKit...
@@ -349,8 +373,7 @@ function PracticeVoiceSession({
 
   const generateDebrief = useCallback(
     async (entries: TranscriptEntry[]) => {
-      const transcript = entries
-        .filter((entry) => entry.isFinal && entry.text.trim().length > 0)
+      const transcript = collapseFinalTranscript(entries)
         .map((entry) => ({
           speaker: entry.speaker === "user" ? "ita" : "student",
           text: entry.text,
@@ -441,9 +464,7 @@ function PracticeVoiceSession({
   const effectiveEntries = sessionStarted ? liveEntries : frozenEntries;
 
   const rows = useMemo(() => {
-    const itaTurns = effectiveEntries.reduce((count, entry) => {
-      return entry.speaker === "user" && entry.isFinal ? count + 1 : count;
-    }, 0);
+    const itaTurns = countItaTurns(effectiveEntries);
 
     return { items: effectiveEntries, itaTurns };
   }, [effectiveEntries]);
@@ -474,36 +495,7 @@ function PracticeVoiceSession({
     state === "speaking" ? "#0284c7" : state === "thinking" ? "#0f766e" : "#64748b";
 
   return (
-    <div className="flex flex-col gap-4 lg:h-full">
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-        <p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">Session controls</p>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={toggleMic} disabled={!sessionStarted}>
-            {micEnabled ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-            {micEnabled ? "Mic on" : "Mic off"}
-          </Button>
-          {sessionStarted ? (
-            <Button type="button" variant="outline" size="sm" onClick={stopSession}>
-              <Square className="h-4 w-4" />
-              Stop
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={resetSession}
-              disabled={!hasStoppedSession || isResetting}
-            >
-              <RotateCcw className="h-4 w-4" />
-              {isResetting ? "Resetting..." : "Reset"}
-            </Button>
-          )}
-          <StartAudio label="Enable audio" className="h-8 rounded-md border border-slate-300 px-3 text-xs" />
-        </div>
-      </div>
-
-      <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-12">
+    <div className="grid gap-4 lg:h-full lg:min-h-0 lg:grid-cols-12">
         <section className="flex min-h-[420px] min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-5 lg:col-span-5 lg:min-h-0">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Live transcript</p>
@@ -537,18 +529,45 @@ function PracticeVoiceSession({
                   );
                 })
               )}
+              {!sessionStarted && hasStoppedSession && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">
+                    Post-session coaching
+                  </p>
+                  {isDebriefLoading ? (
+                    <p>Generating feedback...</p>
+                  ) : debriefError ? (
+                    <p className="text-red-700">{debriefError}</p>
+                  ) : debrief ? (
+                    <div className="space-y-2">
+                      <p>
+                        <span className="font-semibold text-amber-900">Skill status:</span>{" "}
+                        <span className="capitalize">{debrief.skillStatus}</span>
+                      </p>
+                      <p>
+                        <span className="font-semibold text-amber-900">You did well:</span> {debrief.didWell}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-amber-900">Next step:</span> {debrief.nextStep}
+                      </p>
+                    </div>
+                  ) : (
+                    <p>Complete one round to receive coaching feedback.</p>
+                  )}
+                </div>
+              )}
               <div ref={transcriptBottomRef} />
             </div>
           </ScrollArea>
         </section>
 
         <section className="flex min-h-[320px] flex-col rounded-2xl border border-slate-200 bg-white p-5 lg:col-span-3 lg:min-h-0">
-          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Scenario + status</p>
-          <h2 className="mt-2 text-lg font-semibold text-slate-900">{activity.title}</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{activity.shortDescription}</p>
+          <p className="text-center text-xs uppercase tracking-[0.16em] text-slate-500">Scenario + status</p>
+          <h2 className="mt-2 text-left text-lg font-semibold text-slate-900">{activity.title}</h2>
+          <p className="mt-2 text-left text-xs leading-6 text-slate-600">{activity.shortDescription}</p>
           <Separator className="my-4 bg-slate-200" />
 
-          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Voice activity</p>
+          <p className="text-center text-xs uppercase tracking-[0.16em] text-slate-500">Voice activity</p>
           <div className="mt-3 flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 p-3">
             {!sessionStarted ? (
               <button
@@ -556,6 +575,11 @@ function PracticeVoiceSession({
                 onMouseEnter={() => setStartHover(true)}
                 onMouseLeave={() => setStartHover(false)}
                 onClick={() => {
+                  if (hasStoppedSession) {
+                    void resetSession();
+                    return;
+                  }
+
                   setFrozenEntries([]);
                   setSessionEndReason(null);
                   setDebrief(null);
@@ -563,7 +587,6 @@ function PracticeVoiceSession({
                   setIsDebriefLoading(false);
                   onStartSession();
                 }}
-                disabled={hasStoppedSession}
                 className="relative flex h-[190px] w-[190px] items-center justify-center rounded-xl border border-cyan-200 bg-cyan-50/70 transition-colors duration-250 hover:border-cyan-400 hover:bg-cyan-100/70 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100"
               >
                 <AgentAudioVisualizerGrid
@@ -571,11 +594,11 @@ function PracticeVoiceSession({
                   size="md"
                   rowCount={8}
                   columnCount={8}
-                  color={hasStoppedSession ? "#94a3b8" : startHover ? "#0284c7" : "#22d3ee"}
+                  color={hasStoppedSession ? "#64748b" : startHover ? "#0284c7" : "#22d3ee"}
                   className="gap-2"
                 />
                 <span className="pointer-events-none absolute bottom-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-700">
-                  {hasStoppedSession ? "Reset to restart" : "Click to start"}
+                  {hasStoppedSession ? "Click to reset" : "Click to start"}
                 </span>
               </button>
             ) : (
@@ -593,72 +616,51 @@ function PracticeVoiceSession({
             )}
           </div>
 
-          <p className="mt-4 text-sm text-slate-600">
+          <p className="mt-4 text-center text-xs text-slate-600">
             {sessionStarted
-              ? "Practice is running. Use Stop when you want to end this attempt."
-              : "Start when ready. The student speaks only after you begin."}
+              ? "Session is live. Use End when you are ready to finish this round."
+              : "Click the visualizer to start. The student will begin talking right after you start."}
           </p>
+
+          <Separator className="my-4 bg-slate-200" />
+
+          <p className="text-center text-xs uppercase tracking-[0.16em] text-slate-500">Controls</p>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={toggleMic} disabled={!sessionStarted}>
+              {micEnabled ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+              {micEnabled ? "Mic on" : "Mic off"}
+            </Button>
+            {sessionStarted ? (
+              <Button type="button" variant="outline" size="sm" onClick={stopSession}>
+                <Square className="h-4 w-4" />
+                End
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={resetSession}
+                disabled={!hasStoppedSession || isResetting}
+              >
+                <RotateCcw className="h-4 w-4" />
+                {isResetting ? "Resetting..." : "Reset"}
+              </Button>
+            )}
+            <StartAudio label="Enable audio" className="h-8 rounded-md border border-slate-300 px-3 text-xs" />
+          </div>
         </section>
 
         <aside className="flex min-h-[420px] flex-col rounded-2xl border border-slate-200 bg-white p-5 lg:col-span-4 lg:min-h-0">
           <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Objective</p>
           <h2 className="mt-2 text-lg font-semibold text-slate-900">{activity.objective.title}</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{activity.objective.description}</p>
+          <p className="mt-2 text-xs leading-6 text-slate-600">{activity.objective.description}</p>
 
           <ScrollArea className="mt-4 h-[320px] rounded-xl border border-slate-200 bg-slate-50/60 p-3 lg:min-h-0 lg:flex-1 lg:h-auto">
             <div className="space-y-4 pr-2 text-sm text-slate-700">
               <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Session status</p>
-                <p className="mt-2 font-semibold text-slate-900">
-                  {sessionStarted
-                    ? "In progress"
-                    : sessionEndReason === "max_turns"
-                      ? "Max turns reached"
-                      : sessionEndReason === "manual"
-                        ? "Ended by you"
-                        : "Not started"}
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
                 <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Success criteria</p>
                 <p className="mt-2 leading-6">{activity.objective.successCriteria}</p>
-              </div>
-
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Session progress</p>
-                <p className="mt-2">
-                  Your turns: <span className="font-semibold text-cyan-700">{rows.itaTurns}</span>
-                </p>
-                <p>
-                  Max turns: <span className="font-semibold text-slate-900">{activity.maxTurns}</span>
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Post-session coaching</p>
-                {sessionStarted ? (
-                  <p className="mt-2 text-slate-600">Feedback appears after the session ends.</p>
-                ) : isDebriefLoading ? (
-                  <p className="mt-2 text-slate-600">Generating feedback...</p>
-                ) : debriefError ? (
-                  <p className="mt-2 text-red-700">{debriefError}</p>
-                ) : debrief ? (
-                  <div className="mt-2 space-y-2">
-                    <p>
-                      <span className="font-semibold text-slate-900">Skill status:</span>{" "}
-                      <span className="capitalize">{debrief.skillStatus}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold text-slate-900">You did well:</span> {debrief.didWell}
-                    </p>
-                    <p>
-                      <span className="font-semibold text-slate-900">Next step:</span> {debrief.nextStep}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="mt-2 text-slate-600">Complete one round to receive coaching feedback.</p>
-                )}
               </div>
 
               <div className="rounded-lg border border-slate-200 bg-white p-3">
@@ -673,8 +675,29 @@ function PracticeVoiceSession({
               </div>
             </div>
           </ScrollArea>
+
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Progress</p>
+            <p className="mt-2">
+              Status:{" "}
+              <span className="font-semibold text-slate-900">
+                {sessionStarted
+                  ? "In progress"
+                  : sessionEndReason === "max_turns"
+                    ? "Round complete (max turns reached)"
+                    : sessionEndReason === "manual"
+                      ? "Round complete"
+                      : "Not started"}
+              </span>
+            </p>
+            <p>
+              Your turns: <span className="font-semibold text-cyan-700">{rows.itaTurns}</span>
+            </p>
+            <p>
+              Turn limit: <span className="font-semibold text-slate-900">{activity.maxTurns}</span>
+            </p>
+          </div>
         </aside>
-      </div>
     </div>
   );
 }

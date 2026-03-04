@@ -32,13 +32,14 @@ Goal: different activities produce different student behavior.
 
 Scope:
 - Add shared `src/lib/activities.ts` used by frontend and agent.
-- Add three starter activities from project docs.
+- Add all six core activities from project docs.
 - Update home page with activity cards and detail/launch flow.
 - Update agent to load persona using `activityId` from room name.
 
 Test checklist:
-1. Launch two different activities.
+1. Launch at least two different activities.
 2. Confirm opening lines and behaviors differ by activity.
+3. Confirm all six activities are visible from the home page.
 
 ### Phase 3: Practice UI (desktop first, mobile responsive)
 
@@ -81,7 +82,7 @@ Scope:
 - Remove mid-conversation coaching/evaluation behaviors.
 - Keep realtime agent focused on student roleplay only.
 - End sessions by user action or max-turn limit.
-- Add post-session transcript coaching via a separate LLM call.
+- Add post-session transcript coaching via a separate OpenAI API call.
 
 Test checklist:
 1. Activity opening lines are specific and anchored (no vague lecture questions).
