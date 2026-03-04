@@ -443,6 +443,8 @@ Steps:
 
 ---
 
+pnpm --filter ita-trainer-agent dev
+
 ## Common Pitfalls (From Previous Attempts)
 
 1. Do not use outdated LiveKit API patterns. The v1.x Node.js SDK uses defineAgent, voice.Agent (class-based), and voice.AgentSession. Older patterns like @server.rtc_session are Python-only. Reference: https://github.com/livekit-examples/agent-starter-node

@@ -69,6 +69,22 @@ Test checklist:
 1. Objective status updates in real time.
 2. Session ends correctly for completion and max-turn limits.
 
+### Phase 4.5: Pedagogy + behavior simplification (new)
+
+Goal: tighten activity design and reduce realtime model load.
+
+Scope:
+- Refocus activities to one skill + one concrete content anchor.
+- Remove mid-conversation coaching/evaluation behaviors.
+- Keep realtime agent focused on student roleplay only.
+- End sessions by user action or max-turn limit.
+- Add post-session transcript coaching via a separate LLM call.
+
+Test checklist:
+1. Activity opening lines are specific and anchored (no vague lecture questions).
+2. Student stays in-role during conversation and does not output meta/system text.
+3. End-of-session debrief returns: one strength, one next-step, and skill status (yes/partially/not yet).
+
 ### Phase 5: Polish + reliability
 
 Goal: stabilize and clean up MVP UX.
@@ -77,6 +93,9 @@ Scope:
 - Improve loading, error, and empty states.
 - Final style pass and interaction polish.
 - Run lint/build checks and fix issues.
+
+Note:
+- Reliability now prioritizes roleplay quality + post-session coaching flow over live objective scoring.
 
 Test checklist:
 1. Lint and build pass.
