@@ -208,6 +208,10 @@ export default function PracticePage() {
   }, [fetchConnectionDetails]);
 
   const handleStartSession = useCallback(async () => {
+    if (sessionStarted) {
+      return;
+    }
+
     setSessionStarted(true);
     setHasStoppedSession(false);
 
@@ -221,7 +225,9 @@ export default function PracticePage() {
       setSessionStarted(false);
       setError(toUserFacingErrorMessage(startError));
     }
-  }, [connectionDetails, fetchConnectionDetails]);
+  }, [connectionDetails, fetchConnectionDetails, sessionStarted]);
+
+  const isStartingSession = sessionStarted && !connectionDetails && !error;
 
   const statusText = useMemo(() => {
     if (error) {
@@ -229,7 +235,9 @@ export default function PracticePage() {
     }
 
     if (!connectionDetails) {
-      return "Initializing voice simulation...";
+      return isStartingSession
+        ? "Starting session..."
+        : "Ready when you are: click the visualizer to start";
     }
 
     if (!sessionStarted) {
@@ -237,7 +245,7 @@ export default function PracticePage() {
     }
 
     return `Connected to ${connectionDetails.roomName}`;
-  }, [connectionDetails, error, sessionStarted]);
+  }, [connectionDetails, error, isStartingSession, sessionStarted]);
 
   if (activityId && !activity) {
     return (
@@ -275,15 +283,16 @@ export default function PracticePage() {
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-7xl p-4 md:p-6 lg:min-h-[calc(100vh-81px)]">
-        {!connectionDetails && !error && (
-          <div className="flex min-h-[55vh] items-center justify-center rounded-2xl border border-slate-200 bg-white p-6 text-slate-500 lg:h-full lg:min-h-0">
-            <div className="space-y-3 text-center">
-              <p>Session is ready. Click start to create a room and connect.</p>
-              <Button type="button" onClick={() => void handleStartSession()}>
-                Start practice session
-              </Button>
-            </div>
+      <div className="mx-auto w-full max-w-7xl p-4 md:p-6 lg:min-h-[calc(100vh-110px)]">
+        {!connectionDetails && !error && activity && (
+          <div className="rounded-2xl border border-emerald-200/70 bg-white/95 p-4 shadow-[0_18px_45px_-34px_rgba(20,83,45,0.55)] md:p-6">
+            <PracticePreSessionView
+              activity={activity}
+              isStartingSession={isStartingSession}
+              onStartSession={() => {
+                void handleStartSession();
+              }}
+            />
           </div>
         )}
 
@@ -352,6 +361,118 @@ export default function PracticePage() {
         )}
       </div>
     </main>
+  );
+}
+
+function PracticePreSessionView({
+  activity,
+  isStartingSession,
+  onStartSession,
+}: {
+  activity: NonNullable<ReturnType<typeof getActivity>>;
+  isStartingSession: boolean;
+  onStartSession: () => void;
+}) {
+  const [startHover, setStartHover] = useState(false);
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-12">
+      <section className="flex min-h-[420px] min-w-0 flex-col rounded-2xl border border-emerald-200/70 bg-gradient-to-b from-white to-emerald-50/20 p-5 lg:col-span-5 lg:min-h-0">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Live transcript</p>
+          <p className="text-xs text-slate-500">Starts after you click</p>
+        </div>
+
+        <div className="flex h-[320px] rounded-xl border border-emerald-100 bg-emerald-50/30 p-3 lg:h-auto lg:min-h-0 lg:flex-1">
+          <div className="space-y-2 pr-2">
+            <p className="rounded-xl border border-red-200/80 bg-red-50/75 px-4 py-3 text-sm leading-6 text-red-800">
+              This technology is experimental and may make mistakes. Try resetting if something goes wrong.
+            </p>
+            <p className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
+              Click the visualizer to start. Transcript messages will appear here in real time.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="flex min-h-[320px] flex-col rounded-2xl border border-amber-200/70 bg-gradient-to-b from-white to-amber-50/30 p-5 lg:col-span-3 lg:min-h-0">
+        <p className="text-center text-xs uppercase tracking-[0.16em] text-slate-500">Scenario + status</p>
+        <h2 className="mt-2 text-left text-lg font-semibold text-slate-900">{activity.title}</h2>
+        <p className="mt-2 text-left text-xs leading-6 text-slate-600">{activity.shortDescription}</p>
+        <Separator className="my-4 bg-slate-200" />
+
+        <p className="text-center text-xs uppercase tracking-[0.16em] text-slate-500">Voice activity</p>
+        <div className="mt-3 flex items-center justify-center rounded-xl border border-amber-200/80 bg-amber-50/45 p-3">
+          <button
+            type="button"
+            onMouseEnter={() => setStartHover(true)}
+            onMouseLeave={() => setStartHover(false)}
+            onClick={onStartSession}
+            disabled={isStartingSession}
+            className="relative flex h-[190px] w-[190px] items-center justify-center rounded-xl border border-emerald-300 bg-emerald-50/70 transition-colors duration-250 hover:border-emerald-500 hover:bg-emerald-100/70 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100"
+          >
+            <AgentAudioVisualizerGrid
+              state="thinking"
+              size="md"
+              rowCount={8}
+              columnCount={8}
+              color={isStartingSession ? "#64748b" : startHover ? "#166534" : "#22c55e"}
+              className="gap-2"
+            />
+            <span className="pointer-events-none absolute bottom-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+              {isStartingSession ? "Starting..." : "Click to start"}
+            </span>
+          </button>
+        </div>
+
+        <p className="mt-4 text-center text-xs text-slate-600">
+          {isStartingSession
+            ? "Starting session..."
+            : "The student will begin talking right after you start."}
+        </p>
+
+        <Separator className="my-4 bg-slate-200" />
+
+        <div className="rounded-xl border border-amber-200/80 bg-amber-50/45 p-3 text-sm text-slate-700">
+          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Progress</p>
+          <p className="mt-2">
+            Status: <span className="font-semibold text-slate-900">{isStartingSession ? "Starting" : "Not started"}</span>
+          </p>
+          <p>
+            Your turns: <span className="font-semibold text-emerald-700">0</span>
+          </p>
+          <p>
+            Turn limit: <span className="font-semibold text-slate-900">{activity.maxTurns}</span>
+          </p>
+        </div>
+      </section>
+
+      <aside className="flex min-h-[420px] flex-col rounded-2xl border border-emerald-200/70 bg-gradient-to-b from-white to-emerald-50/20 p-5 lg:col-span-4 lg:min-h-0">
+        <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Objective</p>
+        <h2 className="mt-2 text-lg font-semibold text-slate-900">{activity.objective.title}</h2>
+        <p className="mt-2 whitespace-pre-wrap text-xs leading-6 text-slate-600">{activity.objective.description}</p>
+
+        <ScrollArea className="mt-4 h-[320px] rounded-xl border border-emerald-100 bg-emerald-50/25 p-3 lg:h-auto lg:min-h-0 lg:flex-1">
+          <div className="space-y-4 pr-2 text-sm text-slate-700">
+            <div className="rounded-lg border border-slate-200 bg-white p-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Success criteria</p>
+              <p className="mt-2 leading-6">{activity.objective.successCriteria}</p>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-white p-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Example phrases</p>
+              <div className="mt-2 space-y-2">
+                {activity.objective.examplePhrases.map((phrase) => (
+                  <p key={phrase} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    {phrase}
+                  </p>
+                ))}
+              </div>
+            </div>
+          </div>
+        </ScrollArea>
+      </aside>
+    </div>
   );
 }
 
