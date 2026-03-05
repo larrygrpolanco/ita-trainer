@@ -28,6 +28,9 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <div className="flex min-h-screen flex-col">
+          <div className="border-b border-amber-200/80 bg-amber-50/80 px-4 py-2 text-center text-sm font-medium text-amber-900">
+            Proof of concept: the core experience is in place, and significant prompt tuning is still planned before this is intended for real practice.
+          </div>
           <div className="flex-1">{children}</div>
           <footer className="border-t border-emerald-200/70 bg-white/90 px-4 py-3 text-xs text-slate-600">
             <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-center gap-2 sm:justify-between">

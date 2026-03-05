@@ -11,6 +11,7 @@ import {
   useTranscriptions,
   useVoiceAssistant,
 } from "@livekit/components-react";
+import { ConnectionState } from "livekit-client";
 import { ChevronLeft, Mic, MicOff, RotateCcw, Square } from "lucide-react";
 import { AgentAudioVisualizerGrid } from "@/components/agents-ui/agent-audio-visualizer-grid";
 import { Button } from "@/components/ui/button";
@@ -431,20 +432,6 @@ function PracticePreSessionView({
             : "The student will begin talking right after you start."}
         </p>
 
-        <Separator className="my-4 bg-slate-200" />
-
-        <div className="rounded-xl border border-amber-200/80 bg-amber-50/45 p-3 text-sm text-slate-700">
-          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Progress</p>
-          <p className="mt-2">
-            Status: <span className="font-semibold text-slate-900">{isStartingSession ? "Starting" : "Not started"}</span>
-          </p>
-          <p>
-            Your turns: <span className="font-semibold text-emerald-700">0</span>
-          </p>
-          <p>
-            Turn limit: <span className="font-semibold text-slate-900">{activity.maxTurns}</span>
-          </p>
-        </div>
       </section>
 
       <aside className="flex min-h-[420px] flex-col rounded-2xl border border-emerald-200/70 bg-gradient-to-b from-white to-emerald-50/20 p-5 lg:col-span-4 lg:min-h-0">
@@ -452,7 +439,7 @@ function PracticePreSessionView({
         <h2 className="mt-2 text-lg font-semibold text-slate-900">{activity.objective.title}</h2>
         <p className="mt-2 whitespace-pre-wrap text-xs leading-6 text-slate-600">{activity.objective.description}</p>
 
-        <ScrollArea className="mt-4 h-[320px] rounded-xl border border-emerald-100 bg-emerald-50/25 p-3 lg:h-auto lg:min-h-0 lg:flex-1">
+        <ScrollArea className="mt-4 max-h-[300] rounded-xl border border-emerald-100 bg-emerald-50/25 p-3 lg:h-auto lg:min-h-0 lg:flex-1">
           <div className="space-y-4 pr-2 text-sm text-slate-700">
             <div className="rounded-lg border border-slate-200 bg-white p-3">
               <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Success criteria</p>
@@ -471,6 +458,19 @@ function PracticePreSessionView({
             </div>
           </div>
         </ScrollArea>
+
+        <div className="mt-4 rounded-xl border border-emerald-200/80 bg-emerald-50/45 p-3 text-sm text-slate-700">
+          <p className="text-xs uppercase tracking-[0.16em] text-emerald-700">Progress</p>
+          <p className="mt-2">
+            Status: <span className="font-semibold text-slate-900">{isStartingSession ? "Starting" : "Not started"}</span>
+          </p>
+          <p>
+            Your turns: <span className="font-semibold text-emerald-700">0</span>
+          </p>
+          <p>
+            Turn limit: <span className="font-semibold text-slate-900">{activity.maxTurns}</span>
+          </p>
+        </div>
       </aside>
     </div>
   );
@@ -506,10 +506,46 @@ function PracticeVoiceSession({
   const localIdentity = room.localParticipant?.identity ?? "";
   const micEnabled = Boolean(room.localParticipant?.isMicrophoneEnabled);
 
+  const setMicrophoneEnabledSafely = useCallback(
+    async (enabled: boolean) => {
+      if (!room.localParticipant || room.state !== ConnectionState.Connected) {
+        return;
+      }
+
+      try {
+        await room.localParticipant.setMicrophoneEnabled(enabled);
+      } catch (error) {
+        const message = error instanceof Error ? error.message.toLowerCase() : "";
+        if (message.includes("engine not connected") || message.includes("publishtrackerror")) {
+          return;
+        }
+
+        throw error;
+      }
+    },
+    [room]
+  );
+
   const toggleMic = async () => {
     const nextEnabled = !micEnabled;
-    await room.localParticipant.setMicrophoneEnabled(nextEnabled);
+    await setMicrophoneEnabledSafely(nextEnabled);
   };
+
+  useEffect(() => {
+    if (!sessionStarted) {
+      if (!micEnabled) {
+        void setMicrophoneEnabledSafely(true);
+      }
+      return;
+    }
+
+    const shouldEnableMic = state !== "speaking";
+    if (micEnabled === shouldEnableMic) {
+      return;
+    }
+
+    void setMicrophoneEnabledSafely(shouldEnableMic);
+  }, [micEnabled, sessionStarted, setMicrophoneEnabledSafely, state]);
 
   const liveEntries = useMemo(() => {
     return livekitTranscriptions
@@ -671,7 +707,7 @@ function PracticeVoiceSession({
 
   return (
     <div className="grid gap-4 lg:h-full lg:min-h-0 lg:grid-cols-12">
-        <section className="flex min-h-[420px] min-w-0 flex-col rounded-2xl border border-emerald-200/70 bg-gradient-to-b from-white to-emerald-50/20 p-5 lg:col-span-5 lg:min-h-0">
+        <section className="flex max-h-[600px] min-w-0 flex-col rounded-2xl border border-emerald-200/70 bg-gradient-to-b from-white to-emerald-50/20 p-5 lg:col-span-5 lg:min-h-0">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Live transcript</p>
             <p className="text-xs text-slate-500">Updates in real time</p>
@@ -862,7 +898,7 @@ function PracticeVoiceSession({
           <h2 className="mt-2 text-lg font-semibold text-slate-900">{activity.objective.title}</h2>
           <p className="mt-2 whitespace-pre-wrap text-xs leading-6 text-slate-600">{activity.objective.description}</p>
 
-          <ScrollArea className="mt-4 h-[320px] rounded-xl border border-emerald-100 bg-emerald-50/25 p-3 lg:h-auto lg:min-h-0 lg:flex-1">
+          <ScrollArea className="mt-4 max-h-[300px] rounded-xl border border-emerald-100 bg-emerald-50/25 p-3 lg:h-auto lg:min-h-0 lg:flex-1">
             <div className="space-y-4 pr-2 text-sm text-slate-700">
               <div className="rounded-lg border border-slate-200 bg-white p-3">
                 <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Success criteria</p>
@@ -882,8 +918,8 @@ function PracticeVoiceSession({
             </div>
           </ScrollArea>
 
-          <div className="mt-4 rounded-xl border border-amber-200/80 bg-amber-50/45 p-3 text-sm text-slate-700">
-            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Progress</p>
+          <div className="mt-4 rounded-xl border border-emerald-200/80 bg-emerald-50/45 p-3 text-sm text-slate-700">
+            <p className="text-xs uppercase tracking-[0.16em] text-emerald-700">Progress</p>
             <p className="mt-2">
               Status:{" "}
               <span className="font-semibold text-slate-900">

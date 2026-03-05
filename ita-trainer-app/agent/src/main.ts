@@ -68,24 +68,51 @@ function resolveActivityId(ctx: JobContext): { activityId: string; roomName: str
   };
 }
 
-async function waitForRemoteParticipant(ctx: JobContext, timeoutMs = 5000): Promise<boolean> {
+async function waitForRemoteParticipant(ctx: JobContext, timeoutMs = 30000): Promise<boolean> {
   if (ctx.room.remoteParticipants.size > 0) {
     return true;
   }
 
+  const roomWithEvents = ctx.room as unknown as {
+    once?: (event: string, listener: () => void) => void;
+  };
+
+  const participantConnectedPromise = roomWithEvents.once
+    ? new Promise<boolean>((resolve) => {
+        roomWithEvents.once!("participantConnected", () => {
+          resolve(true);
+        });
+      })
+    : null;
+
   const startedAt = Date.now();
+  const pollingPromise = new Promise<boolean>((resolve) => {
+    const poll = () => {
+      if (ctx.room.remoteParticipants.size > 0) {
+        resolve(true);
+        return;
+      }
 
-  while (Date.now() - startedAt < timeoutMs) {
-    await new Promise((resolve) => {
-      setTimeout(resolve, 200);
-    });
+      if (Date.now() - startedAt >= timeoutMs) {
+        resolve(false);
+        return;
+      }
 
-    if (ctx.room.remoteParticipants.size > 0) {
-      return true;
-    }
+      setTimeout(poll, 200);
+    };
+
+    poll();
+  });
+
+  const hasParticipant = await Promise.race(
+    participantConnectedPromise ? [participantConnectedPromise, pollingPromise] : [pollingPromise]
+  );
+
+  if (hasParticipant) {
+    return true;
   }
 
-  return false;
+  return ctx.room.remoteParticipants.size > 0;
 }
 
 export default defineAgent({
@@ -97,16 +124,6 @@ export default defineAgent({
       source: resolved.source,
       jobId: ctx.job.id,
     });
-
-    const hasRemoteParticipant = await waitForRemoteParticipant(ctx);
-    if (!hasRemoteParticipant) {
-      console.warn("Skipping session start because no remote participant joined in time", {
-        activityId: resolved.activityId,
-        roomName: resolved.roomName,
-        jobId: ctx.job.id,
-      });
-      return;
-    }
 
     const agent = createStudentAgent(resolved.activityId);
 
@@ -131,6 +148,16 @@ export default defineAgent({
       },
     });
 
+    const hasRemoteParticipant = await waitForRemoteParticipant(ctx);
+    if (!hasRemoteParticipant) {
+      console.warn("Skipping opening line because no remote participant joined in time", {
+        activityId: resolved.activityId,
+        roomName: resolved.roomName,
+        jobId: ctx.job.id,
+      });
+      return;
+    }
+
     const openingLine = getOpeningLine(resolved.activityId);
     console.info("Sending opening line", {
       activityId: resolved.activityId,
@@ -150,5 +177,6 @@ cli.runApp(
   new ServerOptions({
     agent: fileURLToPath(import.meta.url),
     agentName: "ita-student-agent",
+    initializeProcessTimeout: 30_000,
   })
 );

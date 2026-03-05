@@ -46,20 +46,38 @@ function resolveActivityId(ctx) {
         source: "room-name",
     };
 }
-async function waitForRemoteParticipant(ctx, timeoutMs = 5000) {
+async function waitForRemoteParticipant(ctx, timeoutMs = 30000) {
     if (ctx.room.remoteParticipants.size > 0) {
         return true;
     }
+    const roomWithEvents = ctx.room;
+    const participantConnectedPromise = roomWithEvents.once
+        ? new Promise((resolve) => {
+            roomWithEvents.once("participantConnected", () => {
+                resolve(true);
+            });
+        })
+        : null;
     const startedAt = Date.now();
-    while (Date.now() - startedAt < timeoutMs) {
-        await new Promise((resolve) => {
-            setTimeout(resolve, 200);
-        });
-        if (ctx.room.remoteParticipants.size > 0) {
-            return true;
-        }
+    const pollingPromise = new Promise((resolve) => {
+        const poll = () => {
+            if (ctx.room.remoteParticipants.size > 0) {
+                resolve(true);
+                return;
+            }
+            if (Date.now() - startedAt >= timeoutMs) {
+                resolve(false);
+                return;
+            }
+            setTimeout(poll, 200);
+        };
+        poll();
+    });
+    const hasParticipant = await Promise.race(participantConnectedPromise ? [participantConnectedPromise, pollingPromise] : [pollingPromise]);
+    if (hasParticipant) {
+        return true;
     }
-    return false;
+    return ctx.room.remoteParticipants.size > 0;
 }
 export default defineAgent({
     entry: async (ctx) => {
@@ -70,15 +88,6 @@ export default defineAgent({
             source: resolved.source,
             jobId: ctx.job.id,
         });
-        const hasRemoteParticipant = await waitForRemoteParticipant(ctx);
-        if (!hasRemoteParticipant) {
-            console.warn("Skipping session start because no remote participant joined in time", {
-                activityId: resolved.activityId,
-                roomName: resolved.roomName,
-                jobId: ctx.job.id,
-            });
-            return;
-        }
         const agent = createStudentAgent(resolved.activityId);
         const session = new voice.AgentSession({
             llm: new openai.realtime.RealtimeModel({
@@ -99,6 +108,15 @@ export default defineAgent({
                 noiseCancellation: BackgroundVoiceCancellation(),
             },
         });
+        const hasRemoteParticipant = await waitForRemoteParticipant(ctx);
+        if (!hasRemoteParticipant) {
+            console.warn("Skipping opening line because no remote participant joined in time", {
+                activityId: resolved.activityId,
+                roomName: resolved.roomName,
+                jobId: ctx.job.id,
+            });
+            return;
+        }
         const openingLine = getOpeningLine(resolved.activityId);
         console.info("Sending opening line", {
             activityId: resolved.activityId,
@@ -115,4 +133,5 @@ export default defineAgent({
 cli.runApp(new ServerOptions({
     agent: fileURLToPath(import.meta.url),
     agentName: "ita-student-agent",
+    initializeProcessTimeout: 30_000,
 }));

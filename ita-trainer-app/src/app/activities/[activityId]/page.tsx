@@ -19,7 +19,7 @@ export default async function ActivityDetailPage({
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#d9eadf_0%,_#f6f2e3_45%,_#fffef8_100%)] text-slate-900">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-12 lg:px-10">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-6 lg:px-10">
         <Link
           href="/"
           className="inline-flex w-fit items-center gap-1.5 rounded-full border border-emerald-200 bg-white/80 px-3 py-1.5 text-sm font-medium text-emerald-800 transition hover:bg-emerald-50 hover:text-emerald-900"

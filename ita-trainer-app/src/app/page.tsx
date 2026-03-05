@@ -16,7 +16,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#d9eadf_0%,_#f6f2e3_45%,_#fffef8_100%)] text-slate-900">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 py-14 lg:px-10">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 py-8 lg:px-10">
         <header className="relative overflow-hidden rounded-3xl border border-emerald-200/80 bg-white/90 p-7 shadow-[0_18px_45px_-28px_rgba(20,83,45,0.45)] md:p-10">
           <div className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-emerald-100/80 blur-2xl" />
           <div className="pointer-events-none absolute -bottom-14 left-8 h-36 w-36 rounded-full bg-amber-100/70 blur-2xl" />
