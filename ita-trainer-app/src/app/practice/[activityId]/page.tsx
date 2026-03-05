@@ -275,7 +275,7 @@ export default function PracticePage() {
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-7xl p-4 md:p-6 lg:h-[calc(100vh-81px)]">
+      <div className="mx-auto w-full max-w-7xl p-4 md:p-6 lg:min-h-[calc(100vh-81px)]">
         {!connectionDetails && !error && (
           <div className="flex min-h-[55vh] items-center justify-center rounded-2xl border border-slate-200 bg-white p-6 text-slate-500 lg:h-full lg:min-h-0">
             <div className="space-y-3 text-center">
@@ -332,7 +332,7 @@ export default function PracticePage() {
               autoGainControl: true,
               voiceIsolation: true,
             }}
-            className="overflow-hidden rounded-2xl border border-emerald-200/70 bg-white/95 p-4 shadow-[0_18px_45px_-34px_rgba(20,83,45,0.55)] md:p-6 lg:h-full"
+            className="rounded-2xl border border-emerald-200/70 bg-white/95 p-4 shadow-[0_18px_45px_-34px_rgba(20,83,45,0.55)] md:p-6 lg:h-full"
           >
             <RoomAudioRenderer />
             <PracticeVoiceSession
