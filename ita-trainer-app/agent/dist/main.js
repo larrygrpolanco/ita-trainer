@@ -1,9 +1,13 @@
 import { ServerOptions, cli, defineAgent, voice, } from "@livekit/agents";
 import * as openai from "@livekit/agents-plugin-openai";
+import { BackgroundVoiceCancellation } from "@livekit/noise-cancellation-node";
 import dotenv from "dotenv";
 import { fileURLToPath } from "node:url";
-import { createStudentAgent, getOpeningLine } from "./agent";
-dotenv.config({ path: "../.env.local" });
+import { createStudentAgent, getOpeningLine } from "./agent.js";
+if (!process.env.LIVEKIT_URL) {
+    dotenv.config({ path: "../.env.local" });
+}
+const OPENAI_REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime-1.5";
 function getActivityIdFromRoomName(roomName) {
     const parts = roomName.split("-");
     const prefix = parts.at(0);
@@ -12,14 +16,73 @@ function getActivityIdFromRoomName(roomName) {
     }
     return parts.slice(1, -1).join("-");
 }
+function parseDispatchMetadata(rawMetadata) {
+    if (typeof rawMetadata !== "string" || rawMetadata.trim().length === 0) {
+        return null;
+    }
+    try {
+        const parsed = JSON.parse(rawMetadata);
+        const activityId = typeof parsed.activityId === "string" ? parsed.activityId : undefined;
+        const roomName = typeof parsed.roomName === "string" ? parsed.roomName : undefined;
+        return { activityId, roomName };
+    }
+    catch {
+        return null;
+    }
+}
+function resolveActivityId(ctx) {
+    const metadata = parseDispatchMetadata(ctx.job.metadata);
+    if (metadata?.activityId) {
+        return {
+            activityId: metadata.activityId,
+            roomName: metadata.roomName ?? "",
+            source: "dispatch-metadata",
+        };
+    }
+    const roomName = ctx.room.name ?? "";
+    return {
+        activityId: getActivityIdFromRoomName(roomName),
+        roomName,
+        source: "room-name",
+    };
+}
+async function waitForRemoteParticipant(ctx, timeoutMs = 5000) {
+    if (ctx.room.remoteParticipants.size > 0) {
+        return true;
+    }
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+        await new Promise((resolve) => {
+            setTimeout(resolve, 200);
+        });
+        if (ctx.room.remoteParticipants.size > 0) {
+            return true;
+        }
+    }
+    return false;
+}
 export default defineAgent({
     entry: async (ctx) => {
-        const roomName = ctx.room.name ?? "";
-        const activityId = getActivityIdFromRoomName(roomName);
-        console.info("Agent job received", { roomName, activityId });
-        const agent = createStudentAgent(activityId);
+        const resolved = resolveActivityId(ctx);
+        console.info("Agent job received", {
+            roomName: resolved.roomName,
+            activityId: resolved.activityId,
+            source: resolved.source,
+            jobId: ctx.job.id,
+        });
+        const hasRemoteParticipant = await waitForRemoteParticipant(ctx);
+        if (!hasRemoteParticipant) {
+            console.warn("Skipping session start because no remote participant joined in time", {
+                activityId: resolved.activityId,
+                roomName: resolved.roomName,
+                jobId: ctx.job.id,
+            });
+            return;
+        }
+        const agent = createStudentAgent(resolved.activityId);
         const session = new voice.AgentSession({
             llm: new openai.realtime.RealtimeModel({
+                model: OPENAI_REALTIME_MODEL,
                 voice: "alloy",
                 turnDetection: {
                     type: "server_vad",
@@ -32,10 +95,17 @@ export default defineAgent({
         await session.start({
             agent,
             room: ctx.room,
+            inputOptions: {
+                noiseCancellation: BackgroundVoiceCancellation(),
+            },
         });
-        await ctx.connect();
-        const openingLine = getOpeningLine(activityId);
-        console.info("Sending opening line", { activityId, openingLine });
+        const openingLine = getOpeningLine(resolved.activityId);
+        console.info("Sending opening line", {
+            activityId: resolved.activityId,
+            openingLine,
+            roomName: resolved.roomName,
+            jobId: ctx.job.id,
+        });
         const reply = session.generateReply({
             instructions: `Start the conversation naturally with this exact opening line: "${openingLine}"`,
         });

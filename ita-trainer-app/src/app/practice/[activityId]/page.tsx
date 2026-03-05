@@ -180,7 +180,13 @@ export default function PracticePage() {
 
     setError(null);
 
-    const response = await fetch(`/api/token?activityId=${encodeURIComponent(activityId)}`);
+    const response = await fetch("/api/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ activityId }),
+    });
     const data = await response.json();
 
     if (!response.ok) {
@@ -189,32 +195,6 @@ export default function PracticePage() {
 
     setConnectionDetails({ token: data.token, url: data.url, roomName: data.roomName });
   }, [activityId]);
-
-  useEffect(() => {
-    let active = true;
-
-    const loadConnectionDetails = async () => {
-      try {
-        if (!active) {
-          return;
-        }
-
-        await fetchConnectionDetails();
-      } catch (loadError) {
-        if (!active) {
-          return;
-        }
-
-        setError(toUserFacingErrorMessage(loadError));
-      }
-    };
-
-    loadConnectionDetails();
-
-    return () => {
-      active = false;
-    };
-  }, [fetchConnectionDetails]);
 
   const handleResetSession = useCallback(async () => {
     setSessionStarted(false);
@@ -226,6 +206,22 @@ export default function PracticePage() {
       setError(toUserFacingErrorMessage(resetError));
     }
   }, [fetchConnectionDetails]);
+
+  const handleStartSession = useCallback(async () => {
+    setSessionStarted(true);
+    setHasStoppedSession(false);
+
+    if (connectionDetails) {
+      return;
+    }
+
+    try {
+      await fetchConnectionDetails();
+    } catch (startError) {
+      setSessionStarted(false);
+      setError(toUserFacingErrorMessage(startError));
+    }
+  }, [connectionDetails, fetchConnectionDetails]);
 
   const statusText = useMemo(() => {
     if (error) {
@@ -282,7 +278,12 @@ export default function PracticePage() {
       <div className="mx-auto w-full max-w-7xl p-4 md:p-6 lg:h-[calc(100vh-81px)]">
         {!connectionDetails && !error && (
           <div className="flex min-h-[55vh] items-center justify-center rounded-2xl border border-slate-200 bg-white p-6 text-slate-500 lg:h-full lg:min-h-0">
-            Connecting to LiveKit...
+            <div className="space-y-3 text-center">
+              <p>Session is ready. Click start to create a room and connect.</p>
+              <Button type="button" onClick={() => void handleStartSession()}>
+                Start practice session
+              </Button>
+            </div>
           </div>
         )}
 
@@ -339,8 +340,7 @@ export default function PracticePage() {
               sessionStarted={sessionStarted}
               hasStoppedSession={hasStoppedSession}
               onStartSession={() => {
-                setSessionStarted(true);
-                setHasStoppedSession(false);
+                void handleStartSession();
               }}
               onStopSession={() => {
                 setSessionStarted(false);

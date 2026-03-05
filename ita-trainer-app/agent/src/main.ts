@@ -9,16 +9,18 @@ import * as openai from "@livekit/agents-plugin-openai";
 import { BackgroundVoiceCancellation } from "@livekit/noise-cancellation-node";
 import dotenv from "dotenv";
 import { fileURLToPath } from "node:url";
-import { createStudentAgent, getOpeningLine } from "./agent";
+import { createStudentAgent, getOpeningLine } from "./agent.js";
 
-dotenv.config({ path: "../.env.local" });
+if (!process.env.LIVEKIT_URL) {
+  dotenv.config({ path: "../.env.local" });
+}
 
 type DispatchMetadata = {
   activityId?: string;
   roomName?: string;
 };
 
-const OPENAI_REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime";
+const OPENAI_REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime-1.5";
 
 function getActivityIdFromRoomName(roomName: string): string {
   const parts = roomName.split("-");
@@ -66,7 +68,7 @@ function resolveActivityId(ctx: JobContext): { activityId: string; roomName: str
   };
 }
 
-async function waitForRemoteParticipant(ctx: JobContext, timeoutMs = 8000): Promise<boolean> {
+async function waitForRemoteParticipant(ctx: JobContext, timeoutMs = 5000): Promise<boolean> {
   if (ctx.room.remoteParticipants.size > 0) {
     return true;
   }
@@ -96,6 +98,16 @@ export default defineAgent({
       jobId: ctx.job.id,
     });
 
+    const hasRemoteParticipant = await waitForRemoteParticipant(ctx);
+    if (!hasRemoteParticipant) {
+      console.warn("Skipping session start because no remote participant joined in time", {
+        activityId: resolved.activityId,
+        roomName: resolved.roomName,
+        jobId: ctx.job.id,
+      });
+      return;
+    }
+
     const agent = createStudentAgent(resolved.activityId);
 
     const session = new voice.AgentSession({
@@ -118,16 +130,6 @@ export default defineAgent({
         noiseCancellation: BackgroundVoiceCancellation(),
       },
     });
-
-    const hasRemoteParticipant = await waitForRemoteParticipant(ctx);
-    if (!hasRemoteParticipant) {
-      console.warn("Skipping opening line because no remote participant joined in time", {
-        activityId: resolved.activityId,
-        roomName: resolved.roomName,
-        jobId: ctx.job.id,
-      });
-      return;
-    }
 
     const openingLine = getOpeningLine(resolved.activityId);
     console.info("Sending opening line", {

@@ -1,27 +1,5 @@
 import { voice } from "@livekit/agents";
-import * as activitiesModule from "../../src/lib/activities";
-
-type Activity = {
-  title: string;
-  fullDescription: string;
-  studentProfile: {
-    name: string;
-    personality: string;
-    openingLine: string;
-  };
-  objective: {
-    title: string;
-    successCriteria: string;
-  };
-  systemPromptExtension: string;
-};
-
-const sharedActivitiesModule =
-  "default" in activitiesModule ? (activitiesModule.default as Record<string, unknown>) : activitiesModule;
-
-const { getActivity } = sharedActivitiesModule as {
-  getActivity: (activityId: string) => Activity | undefined;
-};
+import { type Activity, getActivity } from "./activities.js";
 
 export function createStudentAgent(activityId: string): voice.Agent {
   const activity = getActivity(activityId);

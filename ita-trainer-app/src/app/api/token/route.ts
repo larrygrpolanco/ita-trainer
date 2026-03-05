@@ -38,7 +38,7 @@ function toHttpLivekitUrl(url: string): string {
   return url;
 }
 
-export async function GET(request: Request) {
+export async function POST(request: Request) {
   try {
     if (!LIVEKIT_URL) {
       throw new Error("LIVEKIT_URL is not defined");
@@ -52,8 +52,8 @@ export async function GET(request: Request) {
       throw new Error("LIVEKIT_API_SECRET is not defined");
     }
 
-    const { searchParams } = new URL(request.url);
-    const activityId = searchParams.get("activityId");
+    const body = (await request.json()) as { activityId?: string };
+    const activityId = body.activityId;
 
     if (!activityId) {
       return NextResponse.json({ error: "Missing activityId" }, { status: 400 });
