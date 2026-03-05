@@ -47,7 +47,7 @@ export default async function ActivityDetailPage({
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-slate-700">
               <p className="font-medium text-slate-900">{activity.objective.title}</p>
-              <p>{activity.objective.description}</p>
+              <p className="whitespace-pre-wrap">{activity.objective.description}</p>
               <p>
                 <span className="font-medium text-slate-900">Success criteria:</span>{" "}
                 {activity.objective.successCriteria}

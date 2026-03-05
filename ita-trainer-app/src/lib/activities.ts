@@ -188,7 +188,7 @@ const activities: Activity[] = [
     objective: {
       title: "Giving Clear Sequential Instructions",
       description:
-        "Deliver instructions in clear order, pause between steps, and confirm readiness before continuing.",
+        "Deliver instructions in clear order, pause between steps, and confirm readiness before continuing. \nSteps: fill burette, measure analyte, add indicator, and titrate slowly to endpoint.",
       successCriteria:
         "The ITA guides the student through the process in a clear sequence with check-ins, instead of listing the whole procedure in one dump.",
       examplePhrases: [

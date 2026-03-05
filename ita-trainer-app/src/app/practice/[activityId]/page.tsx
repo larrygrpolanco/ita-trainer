@@ -739,7 +739,7 @@ function PracticeVoiceSession({
         <aside className="flex min-h-[420px] flex-col rounded-2xl border border-emerald-200/70 bg-gradient-to-b from-white to-emerald-50/20 p-5 lg:col-span-4 lg:min-h-0">
           <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Objective</p>
           <h2 className="mt-2 text-lg font-semibold text-slate-900">{activity.objective.title}</h2>
-          <p className="mt-2 text-xs leading-6 text-slate-600">{activity.objective.description}</p>
+          <p className="mt-2 whitespace-pre-wrap text-xs leading-6 text-slate-600">{activity.objective.description}</p>
 
           <ScrollArea className="mt-4 h-[320px] rounded-xl border border-emerald-100 bg-emerald-50/25 p-3 lg:h-auto lg:min-h-0 lg:flex-1">
             <div className="space-y-4 pr-2 text-sm text-slate-700">
