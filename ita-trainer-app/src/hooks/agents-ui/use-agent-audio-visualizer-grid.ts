@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { type AgentState } from '@livekit/components-react';
 
 export interface Coordinate {
@@ -71,29 +71,24 @@ export function useAgentAudioVisualizerGridAnimator(
   radius?: number,
 ): Coordinate {
   const [index, setIndex] = useState(0);
-  const [sequence, setSequence] = useState<Coordinate[]>(() => [
-    {
-      x: Math.floor(columns / 2),
-      y: Math.floor(rows / 2),
-    },
-  ]);
-
-  useEffect(() => {
+  const sequence = useMemo(() => {
     const clampedRadius = radius
       ? Math.min(radius, Math.floor(Math.max(rows, columns) / 2))
       : Math.floor(Math.max(rows, columns) / 2);
 
     if (state === 'thinking') {
-      setSequence(generateThinkingSequence(rows, columns));
-    } else if (state === 'connecting' || state === 'initializing') {
-      const sequence = [...generateConnectingSequence(rows, columns, clampedRadius)];
-      setSequence(sequence);
-    } else if (state === 'listening') {
-      setSequence(generateListeningSequence(rows, columns));
-    } else {
-      setSequence([{ x: Math.floor(columns / 2), y: Math.floor(rows / 2) }]);
+      return generateThinkingSequence(rows, columns);
     }
-    setIndex(0);
+
+    if (state === 'connecting' || state === 'initializing') {
+      return [...generateConnectingSequence(rows, columns, clampedRadius)];
+    }
+
+    if (state === 'listening') {
+      return generateListeningSequence(rows, columns);
+    }
+
+    return [{ x: Math.floor(columns / 2), y: Math.floor(rows / 2) }];
   }, [state, rows, columns, radius]);
 
   useEffect(() => {
